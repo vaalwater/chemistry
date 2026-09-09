@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>高中化学 3D</title>
+<style>
+@@CSS@@
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="boot">
+    <div class="boot-inner">
+      <div class="atom-mark">
+        <span class="core"></span>
+        <i class="e1"></i><i class="e2"></i><i class="e3"></i>
+      </div>
+      <div class="boot-title">3D 化学空间</div>
+      <div class="boot-sub">正在准备分子场景…</div>
+    </div>
+  </div>
+
+  <div id="hint" class="hud">
+    <span id="hintText"></span>
+  </div>
+
+  <div id="centerMsg" class="hud"></div>
+
+  <div id="errMsg" class="hud error"></div>
+
+  <script>
+    window.CHEM_DATA = @@DATA@@;
+  </script>
+  <script>
+@@THREE@@
+  </script>
+  <script>
+@@ENGINE@@
+  </script>
+</body>
+</html>

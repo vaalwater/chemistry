@@ -1,0 +1,93 @@
+html, body {
+  margin: 0; padding: 0; height: 100%; width: 100%;
+  overflow: hidden; background: transparent;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+}
+#app {
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #f3f7fd 46%, #dde8f6 100%);
+}
+#app canvas {
+  display: block; touch-action: none;
+  cursor: grab;
+}
+#app canvas.dragging { cursor: grabbing; }
+
+/* ---- HUD ---- */
+.hud {
+  position: fixed; left: 0; right: 0;
+  display: flex; justify-content: center; pointer-events: none;
+  z-index: 5;
+}
+#hint { bottom: 6px; opacity: 0; transition: opacity .4s ease; }
+#hint.show { opacity: 1; }
+#hint span {
+  font-size: 11px; color: #5b6b85; background: rgba(255,255,255,.72);
+  padding: 5px 12px; border-radius: 20px;
+  backdrop-filter: blur(6px); box-shadow: 0 1px 6px rgba(31,55,100,.08);
+}
+#centerMsg {
+  top: 24px;
+}
+#centerMsg .msg {
+  font-size: 13px; font-weight: 600; color: #31405c;
+  background: rgba(255,255,255,.85);
+  padding: 6px 14px; border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(31,55,100,.10);
+  opacity: 0; transform: translateY(-6px); transition: all .35s ease;
+}
+#centerMsg .msg.show { opacity: 1; transform: translateY(0); }
+#centerMsg .msg.cond {
+  font-size: 14px; color: #d35400;
+}
+#errMsg { top: 30%; }
+#errMsg .errbox {
+  background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322;
+  font-size: 13px; padding: 8px 14px; border-radius: 10px;
+}
+
+/* ---- tooltip ---- */
+#tooltip {
+  position: fixed; z-index: 6; pointer-events: none; display: none;
+  background: rgba(30,42,66,.92); color: #fff; font-size: 12px;
+  padding: 4px 9px; border-radius: 8px; white-space: nowrap;
+  transform: translate(-50%, -130%);
+}
+
+/* ---- boot ---- */
+#boot {
+  position: fixed; inset: 0; z-index: 20; display: flex;
+  align-items: center; justify-content: center;
+  background: radial-gradient(120% 100% at 50% 0%, #ffffff 0%, #eef4fc 55%, #d9e7f7 100%);
+  transition: opacity .5s ease;
+}
+#boot.hide { opacity: 0; pointer-events: none; }
+.boot-inner { text-align: center; }
+.atom-mark { position: relative; width: 84px; height: 84px; margin: 0 auto 14px; }
+.atom-mark .core {
+  position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+  margin: -13px 0 0 -13px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffb3ad, #ff5a52 55%, #c81e1e);
+  box-shadow: 0 0 0 5px rgba(255,90,82,.15), 0 0 22px rgba(255,90,82,.35);
+}
+.atom-mark i {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #9fd8ff, #2b95f0 60%, #1560b8);
+  box-shadow: 0 0 10px rgba(43,149,240,.5);
+}
+.atom-mark i.e1 { left: -3px; top: 38px; }
+.atom-mark i.e2 { right: 2px; top: 8px; }
+.atom-mark i.e3 { right: 8px; bottom: 14px; }
+.atom-mark::before, .atom-mark::after {
+  content: ""; position: absolute; left: 8px; top: 42px; width: 68px; height: 20px;
+  border-radius: 50%; border: 1.5px solid rgba(59,120,210,.45);
+  transform: rotate(-18deg);
+}
+.atom-mark::after { transform: rotate(18deg); border-color: rgba(255,140,100,.4); }
+.boot-title { font-size: 17px; font-weight: 700; color: #233a5e; letter-spacing: 1px; }
+.boot-sub { margin-top: 6px; font-size: 12px; color: #7c8ea8; }
+.spin { display:inline-block; width: 14px; height: 14px; border: 2px solid #c6d6ea; border-top-color: #4a7dd6; border-radius: 50%; margin-right: 6px; vertical-align: -2px; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

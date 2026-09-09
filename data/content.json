@@ -1,0 +1,343 @@
+{
+  "version": "1.0",
+  "elements": [
+    { "symbol": "H", "name": "氢", "p": 1, "n": 0, "shells": [1], "color": "#ffffff", "radius": 0.28, "desc": "原子序数 1，最外层 1 个电子。常温下以 H₂ 双原子分子存在，是相对分子质量最小的单质。" },
+    { "symbol": "He", "name": "氦", "p": 2, "n": 2, "shells": [2], "color": "#b3e0ff", "radius": 0.3, "desc": "原子序数 2，最外层 2 个电子（K 层排满）。稀有气体，化学性质稳定。" },
+    { "symbol": "Li", "name": "锂", "p": 3, "n": 4, "shells": [2, 1], "color": "#c478ff", "radius": 0.8, "desc": "原子序数 3，最外层 1 个电子，易失去电子形成 Li⁺。" },
+    { "symbol": "Be", "name": "铍", "p": 4, "n": 5, "shells": [2, 2], "color": "#7fd4c0", "radius": 0.74, "desc": "原子序数 4，最外层 2 个电子，化合物中常显 +2 价。" },
+    { "symbol": "B", "name": "硼", "p": 5, "n": 6, "shells": [2, 3], "color": "#f5cfa0", "radius": 0.62, "desc": "原子序数 5，最外层 3 个电子，常见化合物如 H₃BO₃（硼酸）。" },
+    { "symbol": "C", "name": "碳", "p": 6, "n": 6, "shells": [2, 4], "color": "#6f6f6f", "radius": 0.45, "desc": "原子序数 6，最外层 4 个电子。既可失电子也可得电子，是构成有机物的核心元素。" },
+    { "symbol": "N", "name": "氮", "p": 7, "n": 7, "shells": [2, 5], "color": "#3f51f0", "radius": 0.44, "desc": "原子序数 7，最外层 5 个电子。N₂ 含氮氮三键，键能大、性质稳定。" },
+    { "symbol": "O", "name": "氧", "p": 8, "n": 8, "shells": [2, 6], "color": "#e02222", "radius": 0.44, "desc": "原子序数 8，最外层 6 个电子，容易得到 2 个电子形成 O²⁻。地壳中含量最多的元素。" },
+    { "symbol": "F", "name": "氟", "p": 9, "n": 10, "shells": [2, 7], "color": "#22c922", "radius": 0.42, "desc": "原子序数 9，最外层 7 个电子，非金属性最强，易得 1 个电子形成 F⁻。" },
+    { "symbol": "Ne", "name": "氖", "p": 10, "n": 10, "shells": [2, 8], "color": "#b3e0ff", "radius": 0.4, "desc": "原子序数 10，最外层 8 个电子，已达稳定结构（2s²2p⁶）。" },
+    { "symbol": "Na", "name": "钠", "p": 11, "n": 12, "shells": [2, 8, 1], "color": "#a15fe0", "radius": 0.92, "desc": "原子序数 11，最外层 1 个电子，极易失去形成 Na⁺。与水剧烈反应生成 NaOH。" },
+    { "symbol": "Mg", "name": "镁", "p": 12, "n": 12, "shells": [2, 8, 2], "color": "#4ccd85", "radius": 0.85, "desc": "原子序数 12，最外层 2 个电子，燃烧发出耀眼白光，生成 MgO。" },
+    { "symbol": "Al", "name": "铝", "p": 13, "n": 14, "shells": [2, 8, 3], "color": "#9aa7c9", "radius": 0.82, "desc": "原子序数 13，最外层 3 个电子。表面有致密氧化膜 Al₂O₃，耐腐蚀。" },
+    { "symbol": "Si", "name": "硅", "p": 14, "n": 14, "shells": [2, 8, 4], "color": "#c2a05e", "radius": 0.76, "desc": "原子序数 14，最外层 4 个电子。晶体硅为原子晶体，是半导体材料。" },
+    { "symbol": "P", "name": "磷", "p": 15, "n": 16, "shells": [2, 8, 5], "color": "#ff8f2b", "radius": 0.66, "desc": "原子序数 15，最外层 5 个电子。白磷 P₄ 为正四面体结构，易自燃。" },
+    { "symbol": "S", "name": "硫", "p": 16, "n": 16, "shells": [2, 8, 6], "color": "#e8c31c", "radius": 0.6, "desc": "原子序数 16，最外层 6 个电子。火山附近常见黄色晶体，燃烧生成 SO₂。" },
+    { "symbol": "Cl", "name": "氯", "p": 17, "n": 18, "shells": [2, 8, 7], "color": "#1fc21f", "radius": 0.7, "desc": "原子序数 17，最外层 7 个电子，易得 1 个电子形成 Cl⁻。Cl₂ 黄绿色有毒。" },
+    { "symbol": "Ar", "name": "氩", "p": 18, "n": 22, "shells": [2, 8, 8], "color": "#8fd8ff", "radius": 0.5, "desc": "原子序数 18，最外层 8 个电子，稀有气体，常用作保护气。" },
+    { "symbol": "K", "name": "钾", "p": 19, "n": 20, "shells": [2, 8, 8, 1], "color": "#b47ce6", "radius": 1.0, "desc": "原子序数 19，最外层 1 个电子。金属性比钠更强，与水反应更剧烈。" },
+    { "symbol": "Ca", "name": "钙", "p": 20, "n": 20, "shells": [2, 8, 8, 2], "color": "#5fce8a", "radius": 1.02, "desc": "原子序数 20，最外层 2 个电子。CaCO₃ 高温分解生成 CaO 和 CO₂。" },
+    { "symbol": "Fe", "name": "铁", "p": 26, "n": 30, "shells": [2, 8, 14, 2], "color": "#d88a4e", "radius": 0.78, "desc": "过渡金属。与稀盐酸反应生成 FeCl₂ 和 H₂，铁与硫反应生成 FeS（+2 价）。" },
+    { "symbol": "Cu", "name": "铜", "p": 29, "n": 34, "shells": [2, 8, 18, 1], "color": "#e8923a", "radius": 0.82, "desc": "过渡金属，紫红色。Fe 能从 CuSO₄ 溶液中置换出 Cu。" },
+    { "symbol": "Zn", "name": "锌", "p": 30, "n": 35, "shells": [2, 8, 18, 2], "color": "#8a9bb8", "radius": 0.85, "desc": "过渡金属。与稀盐酸/稀硫酸反应生成盐和 H₂，是实验室制氢常用金属。" }
+  ],
+
+  "molecules": [
+    {
+      "id": "h2", "name": "氢气", "formula": "H₂", "category": "单质 · 气体", "level": "必修",
+      "scene": "molecule", "desc": "两个氢原子以非极性共价单键结合。点燃 H₂ 前须验纯，混入空气遇火会爆炸。",
+      "atoms": [{ "el": "H", "pos": [-0.37, 0, 0] }, { "el": "H", "pos": [0.37, 0, 0] }],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }]
+    },
+    {
+      "id": "o2", "name": "氧气", "formula": "O₂", "category": "单质 · 气体", "level": "必修",
+      "scene": "molecule", "desc": "氧原子间形成共价双键（O=O）。氧气化学性质活泼，支持燃烧（助燃）。",
+      "atoms": [{ "el": "O", "pos": [-0.605, 0, 0] }, { "el": "O", "pos": [0.605, 0, 0] }],
+      "bonds": [{ "a": 0, "b": 1, "order": 2 }]
+    },
+    {
+      "id": "n2", "name": "氮气", "formula": "N₂", "category": "单质 · 气体", "level": "必修",
+      "scene": "molecule", "desc": "氮原子间形成共价三键（N≡N），键能很大，因此氮气化学性质非常稳定。",
+      "atoms": [{ "el": "N", "pos": [-0.55, 0, 0] }, { "el": "N", "pos": [0.55, 0, 0] }],
+      "bonds": [{ "a": 0, "b": 1, "order": 3 }]
+    },
+    {
+      "id": "cl2", "name": "氯气", "formula": "Cl₂", "category": "单质 · 气体", "level": "必修",
+      "scene": "molecule", "desc": "两个氯原子以非极性共价单键结合。Cl₂ 黄绿色、有毒，可溶于水并与水反应。",
+      "atoms": [{ "el": "Cl", "pos": [-1.0, 0, 0] }, { "el": "Cl", "pos": [1.0, 0, 0] }],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }]
+    },
+    {
+      "id": "hcl", "name": "氯化氢", "formula": "HCl", "category": "化合物 · 气体", "level": "必修",
+      "scene": "molecule", "desc": "H 与 Cl 以极性共价键结合。HCl 溶于水得盐酸（电离出 H⁺ 和 Cl⁻）。",
+      "acidity": { "label": "强酸", "explain": "HCl 溶于水完全电离：HCl → H⁺ + Cl⁻，其水溶液即盐酸。" },
+      "atoms": [{ "el": "H", "pos": [-0.9, 0, 0] }, { "el": "Cl", "pos": [0.6, 0, 0] }],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }]
+    },
+    {
+      "id": "h2o", "name": "水", "formula": "H₂O", "category": "化合物 · 氧化物", "level": "必修",
+      "scene": "molecule", "desc": "V 形分子，键角约 104.5°，属于极性分子。水是生命之源，也是最常见的溶剂。",
+      "acidity": { "label": "中性", "explain": "纯水的自身电离极微弱，可视为中性。" },
+      "atoms": [
+        { "el": "O", "pos": [0, 0, 0] },
+        { "el": "H", "pos": [0.587, 0.757, 0] },
+        { "el": "H", "pos": [0.587, -0.757, 0] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }, { "a": 0, "b": 2, "order": 1 }],
+      "view": { "rx": 0, "ry": -1.1, "rz": 0 }
+    },
+    {
+      "id": "co2", "name": "二氧化碳", "formula": "CO₂", "category": "化合物 · 氧化物", "level": "必修",
+      "scene": "molecule", "desc": "直线形非极性分子，两个碳氧双键。CO₂ 能使澄清石灰水变浑浊，用于检验。",
+      "atoms": [
+        { "el": "C", "pos": [0, 0, 0] },
+        { "el": "O", "pos": [1.16, 0, 0] },
+        { "el": "O", "pos": [-1.16, 0, 0] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 2 }, { "a": 0, "b": 2, "order": 2 }]
+    },
+    {
+      "id": "ch4", "name": "甲烷", "formula": "CH₄", "category": "化合物 · 有机物", "level": "必修",
+      "scene": "molecule", "desc": "正四面体结构，键角 109.5°。天然气主要成分，燃烧生成 CO₂ 和 H₂O。",
+      "atoms": [
+        { "el": "C", "pos": [0, 0, 0] },
+        { "el": "H", "pos": [0.628, 0.628, 0.628] },
+        { "el": "H", "pos": [0.628, -0.628, -0.628] },
+        { "el": "H", "pos": [-0.628, 0.628, -0.628] },
+        { "el": "H", "pos": [-0.628, -0.628, 0.628] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }, { "a": 0, "b": 2, "order": 1 }, { "a": 0, "b": 3, "order": 1 }, { "a": 0, "b": 4, "order": 1 }]
+    },
+    {
+      "id": "nh3", "name": "氨气", "formula": "NH₃", "category": "化合物 · 气体", "level": "必修",
+      "scene": "molecule", "desc": "三角锥形极性分子，有刺激性气味，极易溶于水，水溶液显碱性。",
+      "acidity": { "label": "弱碱", "explain": "NH₃ 溶于水生成 NH₃·H₂O，仅少部分电离出 OH⁻，故显弱碱性。" },
+      "atoms": [
+        { "el": "N", "pos": [0, 0, 0.2] },
+        { "el": "H", "pos": [0.945, 0, -0.35] },
+        { "el": "H", "pos": [-0.4725, 0.818, -0.35] },
+        { "el": "H", "pos": [-0.4725, -0.818, -0.35] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }, { "a": 0, "b": 2, "order": 1 }, { "a": 0, "b": 3, "order": 1 }],
+      "view": { "rx": 0, "ry": 0.6, "rz": 0 }
+    },
+    {
+      "id": "h2so4", "name": "硫酸", "formula": "H₂SO₄", "category": "化合物 · 酸", "level": "必修",
+      "scene": "molecule", "desc": "硫原子处于四面体中心。浓硫酸有吸水性、脱水性和强氧化性，稀释时须「酸入水」。",
+      "acidity": { "label": "强酸", "explain": "H₂SO₄ 第一步完全电离：H₂SO₄ → H⁺ + HSO₄⁻，水溶液显强酸性。" },
+      "atoms": [
+        { "el": "S", "pos": [0, 0, 0] },
+        { "el": "O", "pos": [0.86, 0.86, 0.86] },
+        { "el": "O", "pos": [-0.86, 0.86, -0.86] },
+        { "el": "O", "pos": [0.86, -0.86, -0.86] },
+        { "el": "O", "pos": [-0.86, -0.86, 0.86] },
+        { "el": "H", "pos": [1.43, 1.43, 1.43] },
+        { "el": "H", "pos": [1.43, -1.43, -1.43] }
+      ],
+      "bonds": [
+        { "a": 0, "b": 1, "order": 2 }, { "a": 0, "b": 2, "order": 1 },
+        { "a": 0, "b": 3, "order": 2 }, { "a": 0, "b": 4, "order": 1 },
+        { "a": 1, "b": 5, "order": 1 }, { "a": 3, "b": 6, "order": 1 }
+      ]
+    },
+    {
+      "id": "naoh", "name": "氢氧化钠", "formula": "NaOH", "category": "化合物 · 碱", "level": "必修",
+      "scene": "molecule", "desc": "由 Na⁺ 与 OH⁻ 构成的离子化合物。NaOH 俗称烧碱/火碱，易潮解、有强腐蚀性。",
+      "acidity": { "label": "强碱", "explain": "NaOH 在水中完全电离：NaOH → Na⁺ + OH⁻。" },
+      "atoms": [
+        { "el": "Na", "pos": [-1.6, 0, 0] },
+        { "el": "O", "pos": [0.3, 0, 0] },
+        { "el": "H", "pos": [1.26, 0, 0] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 0, "style": "ionic" }, { "a": 1, "b": 2, "order": 1 }]
+,
+      "charges": [1, -1, 0]
+    },
+    {
+      "id": "caco3", "name": "碳酸钙", "formula": "CaCO₃", "category": "化合物 · 盐", "level": "必修",
+      "scene": "molecule", "desc": "离子化合物，由 Ca²⁺ 与 CO₃²⁻ 构成。大理石/石灰石主要成分，高温分解生成 CaO。",
+      "atoms": [
+        { "el": "C", "pos": [0, 0, 0] },
+        { "el": "O", "pos": [1.28, 0, 0] },
+        { "el": "O", "pos": [-0.64, 0, 1.109] },
+        { "el": "O", "pos": [-0.64, 0, -1.109] },
+        { "el": "Ca", "pos": [0, 2.4, 0] }
+      ],
+      "bonds": [
+        { "a": 0, "b": 1, "order": 1 }, { "a": 0, "b": 2, "order": 1 }, { "a": 0, "b": 3, "order": 1 },
+        { "a": 4, "b": 1, "order": 0, "style": "ionic" }, { "a": 4, "b": 3, "order": 0, "style": "ionic" }
+      ]
+,
+      "charges": [0, -1, 0, -1, 2]
+    },
+    {
+      "id": "c2h5oh", "name": "乙醇", "formula": "C₂H₅OH", "category": "化合物 · 有机物", "level": "必修",
+      "scene": "molecule", "desc": "含羟基(-OH)的有机物，俗称酒精。可燃烧，能与钠反应放出 H₂。",
+      "acidity": { "label": "中性", "explain": "乙醇难电离，水溶液呈中性。" },
+      "atoms": [
+        { "el": "C", "pos": [0, 0, 0] },
+        { "el": "C", "pos": [1.53, 0, 0] },
+        { "el": "O", "pos": [1.04, 1.34, 0] },
+        { "el": "H", "pos": [-1.09, 0, 0] },
+        { "el": "H", "pos": [0.36, 1.03, 0] },
+        { "el": "H", "pos": [0.36, -0.52, 0.89] },
+        { "el": "H", "pos": [0.36, -0.52, -0.89] },
+        { "el": "H", "pos": [0.53, -0.98, 0] },
+        { "el": "H", "pos": [2.06, 1.28, -0.62] },
+        { "el": "H", "pos": [0.99, 2.3, 0] }
+      ],
+      "bonds": [
+        { "a": 0, "b": 1, "order": 1 }, { "a": 1, "b": 2, "order": 1 },
+        { "a": 0, "b": 3, "order": 1 }, { "a": 0, "b": 4, "order": 1 },
+        { "a": 0, "b": 5, "order": 1 }, { "a": 0, "b": 6, "order": 1 },
+        { "a": 1, "b": 7, "order": 1 }, { "a": 2, "b": 8, "order": 1 }, { "a": 2, "b": 9, "order": 1 }
+      ],
+      "view": { "rx": 0, "ry": -0.4, "rz": 0 }
+    },
+    {
+      "id": "nacl", "name": "氯化钠（晶体）", "formula": "NaCl", "category": "离子晶体", "level": "必修",
+      "scene": "lattice", "desc": "Na⁺ 与 Cl⁻ 按 1:1 在空间交替排列，构成 NaCl 型离子晶体（面心立方）。没有单个「NaCl 分子」。",
+      "note": "离子晶体 · 晶胞示意"
+    },
+    {
+      "id": "h2o2", "name": "过氧化氢", "formula": "H₂O₂", "category": "化合物 · 氧化物", "level": "必修",
+      "scene": "molecule", "desc": "分子中氧原子间以 O–O 键结合（H–O–O–H）。不稳定，MnO₂ 催化下分解产生 O₂。",
+      "atoms": [
+        { "el": "O", "pos": [-0.74, 0, 0] },
+        { "el": "O", "pos": [0.74, 0, 0] },
+        { "el": "H", "pos": [-1.69, 0, 0] },
+        { "el": "H", "pos": [1.69, 0, 0] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 1 }, { "a": 0, "b": 2, "order": 1 }, { "a": 1, "b": 3, "order": 1 }]
+    },
+    {
+      "id": "cao", "name": "氧化钙", "formula": "CaO", "category": "化合物 · 氧化物", "level": "必修",
+      "scene": "molecule", "desc": "俗称生石灰，离子化合物（Ca²⁺ 与 O²⁻）。CaCO₃ 高温分解的产物之一，遇水放热生成 Ca(OH)₂。",
+      "atoms": [
+        { "el": "Ca", "pos": [-1.3, 0, 0] },
+        { "el": "O", "pos": [0.5, 0, 0] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 0, "style": "ionic" }]
+,
+      "charges": [2, -2]
+    },
+    {
+      "id": "caoh2", "name": "氢氧化钙", "formula": "Ca(OH)₂", "category": "化合物 · 碱", "level": "必修",
+      "scene": "molecule", "desc": "俗称熟石灰/消石灰，微溶于水，澄清溶液为石灰水，能与 CO₂ 反应变浑浊。",
+      "acidity": { "label": "强碱", "explain": "Ca(OH)₂ 微溶于水，溶解部分完全电离出 Ca²⁺ 与 OH⁻，溶液显强碱性。" },
+      "atoms": [
+        { "el": "Ca", "pos": [0, 0, 0] },
+        { "el": "O", "pos": [1.9, 0, 0] },
+        { "el": "H", "pos": [2.86, 0, 0] },
+        { "el": "O", "pos": [-1.9, 0, 0] },
+        { "el": "H", "pos": [-2.86, 0, 0] }
+      ],
+      "bonds": [
+        { "a": 0, "b": 1, "order": 0, "style": "ionic" }, { "a": 0, "b": 3, "order": 0, "style": "ionic" },
+        { "a": 1, "b": 2, "order": 1 }, { "a": 3, "b": 4, "order": 1 }
+      ]
+,
+      "charges": [2, -1, 0, -1, 0]
+    },
+    {
+      "id": "zn", "name": "锌（金属单质）", "formula": "Zn", "category": "单质 · 金属", "level": "必修",
+      "scene": "molecule", "desc": "金属晶体，由 Zn²⁺ 与自由电子构成。活动性位于氢前，可与稀酸置换出 H₂。",
+      "atoms": [{ "el": "Zn", "pos": [0, 0, 0] }],
+      "bonds": []
+    },
+    {
+      "id": "zncl2", "name": "氯化锌", "formula": "ZnCl₂", "category": "化合物 · 盐", "level": "必修",
+      "scene": "molecule", "desc": "锌与盐酸反应的生成物，易溶于水。Zn 显 +2 价。",
+      "atoms": [
+        { "el": "Zn", "pos": [0, 0, 0] },
+        { "el": "Cl", "pos": [2.1, 0, 0] },
+        { "el": "Cl", "pos": [-2.1, 0, 0] }
+      ],
+      "bonds": [{ "a": 0, "b": 1, "order": 1, "style": "ionic" }, { "a": 0, "b": 2, "order": 1, "style": "ionic" }],
+      "charges": [2, -1, -1]
+    }
+  ],
+
+  "reactions": [
+    {
+      "id": "h2_burn_o2",
+      "name": "氢气燃烧生成水",
+      "equation": "2H₂ + O₂ ——点燃——→ 2H₂O",
+      "condition": "点燃",
+      "type": "化合反应",
+      "level": "初中 / 必修",
+      "desc": "氢分子与氧分子中的共价键断裂，氢、氧原子重新组合成水分子，释放大量热。属于化合反应、氧化还原反应（H 被氧化，O 被还原）。",
+      "lhs": [{ "mol": "h2", "count": 2 }, { "mol": "o2", "count": 1 }], "rhs": [{ "mol": "h2o", "count": 2 }],
+      "lhsGap": 2.9, "rhsGap": 2.9,
+      "steps": [
+        { "title": "写反应物", "desc": "左侧摆放 2 个 H₂ 分子和 1 个 O₂ 分子，反应条件为「点燃」。", "show": "reactants" },
+        { "title": "断键与重组", "desc": "点燃时分子获得能量：H–H 键与 O=O 键断裂，氢、氧原子重新结合。", "show": "mixing" },
+        { "title": "生成物", "desc": "每 2 个 H 原子与 1 个 O 原子结合为 1 个 H₂O 分子，共生成 2 个水分子。", "show": "products" }
+      ]
+    },
+    {
+      "id": "h2o2_decomp",
+      "name": "过氧化氢分解制氧气",
+      "equation": "2H₂O₂ —MnO₂催化—→ 2H₂O + O₂↑",
+      "condition": "MnO₂ 催化",
+      "type": "分解反应",
+      "level": "必修",
+      "desc": "过氧化氢在 MnO₂ 催化下分解为水和氧气，是实验室制取 O₂ 的常用方法（固液常温型）。",
+      "lhs": [{ "mol": "h2o2", "count": 2 }], "rhs": [{ "mol": "h2o", "count": 2 }, { "mol": "o2", "count": 1 }],
+      "lhsGap": 3.4, "rhsGap": 3.0,
+      "steps": [
+        { "title": "反应物", "desc": "2 个过氧化氢分子（H–O–O–H）在左侧。", "show": "reactants" },
+        { "title": "分子断裂", "desc": "O–O 键与部分 O–H 键断裂，氧原子重新组合。", "show": "mixing" },
+        { "title": "生成物", "desc": "生成 2 个 H₂O 分子和 1 个 O₂ 分子（氧气收集可用排水法）。", "show": "products" }
+      ]
+    },
+    {
+      "id": "caco3_decomp",
+      "name": "碳酸钙高温分解",
+      "equation": "CaCO₃ —高温—→ CaO + CO₂↑",
+      "condition": "高温",
+      "type": "分解反应",
+      "level": "必修",
+      "desc": "石灰石高温煅烧得到生石灰 CaO 和 CO₂，是工业制生石灰的原理，属于分解反应。",
+      "lhs": [{ "mol": "caco3", "count": 1 }], "rhs": [{ "mol": "cao", "count": 1 }, { "mol": "co2", "count": 1 }],
+      "lhsGap": 0, "rhsGap": 3.2,
+      "steps": [
+        { "title": "反应物", "desc": "CaCO₃ 由 Ca²⁺ 与 CO₃²⁻ 构成，受强热时离子键与共价键断裂。", "show": "reactants" },
+        { "title": "离子键断裂", "desc": "Ca²⁺ 与 CO₃²⁻ 分开，CO₃²⁻ 内部的碳氧键也发生断裂。", "show": "mixing" },
+        { "title": "生成物", "desc": "Ca²⁺ 与 O²⁻ 结合为 CaO，剩余碳与氧结合为 CO₂。", "show": "products" }
+      ]
+    },
+    {
+      "id": "neutralize",
+      "name": "氢氧化钠与盐酸中和",
+      "equation": "NaOH + HCl → NaCl + H₂O",
+      "condition": "",
+      "type": "复分解 · 中和反应",
+      "level": "必修",
+      "desc": "酸与碱作用生成盐和水的反应叫中和反应。实质是 H⁺ 与 OH⁻ 结合生成 H₂O，放热。",
+      "lhs": [{ "mol": "naoh", "count": 1 }, { "mol": "hcl", "count": 1 }], "rhs": [{ "mol": "nacl", "count": 1 }, { "mol": "h2o", "count": 1 }],
+      "lhsGap": 3.6, "rhsGap": 3.6,
+      "steps": [
+        { "title": "反应物", "desc": "左侧为 NaOH（Na⁺ + OH⁻）与 HCl。", "show": "reactants" },
+        { "title": "离子互换", "desc": "H⁺ 与 OH⁻ 结合成难电离的 H₂O，Na⁺ 与 Cl⁻ 留在溶液中。", "show": "mixing" },
+        { "title": "生成物", "desc": "生成 NaCl（溶液中的 Na⁺、Cl⁻）与 H₂O，可滴酚酞观察褪色。", "show": "products" }
+      ]
+    },
+    {
+      "id": "zn_hcl",
+      "name": "锌与稀盐酸（置换）",
+      "equation": "Zn + 2HCl → ZnCl₂ + H₂↑",
+      "condition": "",
+      "type": "置换反应",
+      "level": "必修",
+      "desc": "活泼金属置换酸中的氢：Zn 失去 2 个电子变为 Zn²⁺，H⁺ 得电子变为 H 原子并结合成 H₂。",
+      "lhs": [{ "mol": "zn", "count": 1 }, { "mol": "hcl", "count": 2 }], "rhs": [{ "mol": "zncl2", "count": 1 }, { "mol": "h2", "count": 1 }],
+      "lhsGap": 3.2, "rhsGap": 3.4,
+      "steps": [
+        { "title": "反应物", "desc": "Zn（金属原子）投入稀盐酸（H⁺、Cl⁻ 溶液）。", "show": "reactants" },
+        { "title": "电子转移", "desc": "Zn 失电子成为 Zn²⁺，H⁺ 获得电子变成氢原子。", "show": "mixing" },
+        { "title": "生成物", "desc": "氢原子两两结合为 H₂ 逸出，溶液得到 ZnCl₂。", "show": "products" }
+      ]
+    },
+    {
+      "id": "co2_limewater",
+      "name": "CO₂ 使石灰水变浑浊",
+      "equation": "CO₂ + Ca(OH)₂ → CaCO₃↓ + H₂O",
+      "condition": "",
+      "type": "非基本反应类型",
+      "level": "必修",
+      "desc": "CO₂ 与澄清石灰水中的 Ca(OH)₂ 反应生成难溶的 CaCO₃ 沉淀，溶液变浑浊，用于检验 CO₂。",
+      "lhs": [{ "mol": "co2", "count": 1 }, { "mol": "caoh2", "count": 1 }], "rhs": [{ "mol": "caco3", "count": 1 }, { "mol": "h2o", "count": 1 }],
+      "lhsGap": 3.4, "rhsGap": 3.4,
+      "steps": [
+        { "title": "反应物", "desc": "将 CO₂ 通入澄清石灰水 Ca(OH)₂ 溶液。", "show": "reactants" },
+        { "title": "离子结合", "desc": "Ca²⁺ 与 CO₃²⁻ 结合成难溶沉淀 CaCO₃，H⁺ 与 OH⁻ 结合为 H₂O。", "show": "mixing" },
+        { "title": "生成物", "desc": "产生白色沉淀 CaCO₃，溶液重新变澄清可用「继续通入足量 CO₂」。", "show": "products" }
+      ]
+    }
+  ]
+}

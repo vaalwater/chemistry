@@ -1,0 +1,14 @@
+import { readFileSync } from 'node:fs';
+const has = (f, s) => f.includes(s);
+const ejs = readFileSync('engine/engine.js', 'utf8');
+const eh = readFileSync('src/engine/engineHtml.ts', 'utf8');
+const data = JSON.parse(readFileSync('data/content.json', 'utf8'));
+const rx = data.reactions.find((r) => r.id === 'h2_burn_o2');
+console.log('engine.js  Math.PI/2      :', has(ejs, 'Math.PI / 2'));
+console.log('engine.js  adt=dt*0.5     :', has(ejs, 'adt = dt * 0.5'));
+console.log('engine.js  fl.t += adt    :', has(ejs, 'fl.t += adt'));
+console.log('engine.js  bf.t += adt    :', has(ejs, 'bf.t += adt'));
+console.log('engine.js  rootShift 0.24 :', has(ejs, 'fitR || 1) * 0.24'));
+console.log('engineHtml has adt        :', has(eh, 'adt = dt * 0.5') || has(eh, 'adt=dt*0.5') || has(eh, 'adt'));
+console.log('engineHtml has PI/2       :', has(eh, 'Math.PI/2') || has(eh, 'Math.PI / 2') || has(eh, '1.57079632679'));
+console.log('h2_burn_o2 lhs            :', JSON.stringify(rx.lhs));
