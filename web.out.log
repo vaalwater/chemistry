@@ -60,3 +60,30 @@ Web  LOG  Running application "main" with appParams:
 Development-level warnings: ON.
 Performance optimizations: OFF.
 Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
+Web Bundled 339ms index.ts (1 module)
+Web Bundled 24ms index.ts (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
+Web Bundled 1184ms index.ts (1 module)
+Web Bundled 37ms index.ts (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
+Web Bundled 472ms index.ts (1 module)
+Web Bundled 32ms index.ts (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
