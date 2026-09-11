@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Chem3DView, { type Chem3DHandle } from '../components/Chem3DView';
@@ -47,6 +47,9 @@ export default function SceneScreen({ initial, onClose }: Props) {
   const [note, setNote] = useState<string | null>(null); // 底部轻提示
   const [atomCtx, setAtomCtx] = useState<{ bondE: number; valenceE: number; molName: string | null } | null>(null);
   const [viewMode, setViewMode] = useState<'top' | 'solid'>('solid');
+  const [labelsOn, setLabelsOn] = useState(true); // 分子球棍上的元素符号标注
+  const [rxnSpeed, setRxnSpeed] = useState(1); // 反应动画速度倍率
+  const [cardH, setCardH] = useState(0); // 底部信息卡实测高度，用于把画布浮层排在卡片之上
   const chemRef = useRef<Chem3DHandle | null>(null);
 
   const cur = stack[stack.length - 1];
@@ -206,6 +209,13 @@ export default function SceneScreen({ initial, onClose }: Props) {
 
   const resetView = () => send({ cmd: 'view', action: 'reset' });
 
+  const toggleLabels = () => setLabelsOn((v) => !v);
+
+  // 标注开关状态变化或切换分子场景时，同步给引擎（引擎每帧重建场景默认开启标注）
+  useEffect(() => {
+    send({ cmd: 'view', action: 'labels', value: labelsOn });
+  }, [labelsOn, scene.kind, scene.id, scene.mol, send]);
+
   const setAtomViewMode = (m: 'top' | 'solid') => {
     setViewMode(m);
     send({ cmd: 'view', action: m });
@@ -216,6 +226,11 @@ export default function SceneScreen({ initial, onClose }: Props) {
       setRxn({ step: 0, steps: reaction.steps.length, playing: false });
     }
   }, [scene.kind, reaction]);
+
+  // 反应动画速度倍率变化时同步给引擎（非反应场景下引擎会忽略）
+  useEffect(() => {
+    send({ cmd: 'reaction', action: 'speed', value: rxnSpeed });
+  }, [rxnSpeed, send]);
 
   // 每次进入新的原子场景，默认立体视角（可手动切俯视逐层数电子），并清空上一原子的共用信息
   useEffect(() => {
@@ -253,11 +268,30 @@ export default function SceneScreen({ initial, onClose }: Props) {
                 {subtitle}
               </Text>
             </View>
+            {scene.kind === 'molecule' && (!mol || mol.scene !== 'lattice') ? (
+              <Pressable
+                style={[styles.roundBtn, styles.labelsWrap, labelsOn && styles.roundBtnOn]}
+                onPress={toggleLabels}
+                accessibilityLabel={labelsOn ? '隐藏元素标注' : '显示元素标注'}
+                accessibilityState={{ selected: labelsOn }}
+              >
+                <Text style={[styles.aaLabel, labelsOn && styles.aaLabelOn]}>Aa</Text>
+              </Pressable>
+            ) : null}
             <Pressable style={styles.roundBtn} onPress={resetView} accessibilityLabel="重置视角">
               <Ionicons name="refresh" size={19} color={colors.ink} />
             </Pressable>
           </View>
         </View>
+
+        {/* 画布上的视角平移方向盘：上下左右四向浮层，覆盖在 3D 画布之上 */}
+        {scene.kind === 'reaction' && reaction ? (
+          <CanvasPanPad
+            top={insets.top + 64}
+            bottom={cardH + 8}
+            onPan={(dir) => send({ cmd: 'view', action: 'pan', dir })}
+          />
+        ) : null}
 
         {/* 中部轻提示 */}
         {note ? (
@@ -267,7 +301,11 @@ export default function SceneScreen({ initial, onClose }: Props) {
         ) : null}
 
         {/* 底部信息卡 */}
-        <View style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) }]} pointerEvents="box-none">
+        <View
+          style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}
+          pointerEvents="box-none"
+          onLayout={(e) => setCardH(e.nativeEvent.layout.height)}
+        >
           {scene.kind === 'molecule' && mol ? (
             <MoleculePanel
               mol={mol}
@@ -296,6 +334,8 @@ export default function SceneScreen({ initial, onClose }: Props) {
                 send({ cmd: 'reaction', action: rxn?.playing ? 'pause' : 'play' })
               }
               onNext={() => send({ cmd: 'reaction', action: 'next' })}
+              speed={rxnSpeed}
+              onSpeed={setRxnSpeed}
             />
           ) : null}
 
@@ -397,6 +437,179 @@ function MoleculePanel({ mol, onAtom }: { mol: MoleculeData; onAtom: (s: string)
   );
 }
 
+/* ---------- 反应动画速度滑块（5 档：0.1 / 0.3 / 0.5 / 1 / 1.5 倍速） ---------- */
+const SPEED_STOPS = [0.1, 0.3, 0.5, 1, 1.5];
+const SPEED_THUMB = 18;
+
+function speedText(v: number) {
+  return `${v}×`;
+}
+
+function SpeedSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [trackW, setTrackW] = useState(0);
+  const trackWRef = useRef(0);
+  const trackLeftRef = useRef(0);
+  const trackRef = useRef<View | null>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const idx = Math.max(0, SPEED_STOPS.indexOf(value));
+  const ratio = SPEED_STOPS.length > 1 ? idx / (SPEED_STOPS.length - 1) : 0;
+
+  // 记录轨道左边界（页面坐标），拖拽用 pageX 换算比例，避免 locationX 相对子元素失效
+  const measureTrack = useCallback(() => {
+    trackRef.current?.measureInWindow?.((x: number) => {
+      trackLeftRef.current = x;
+    });
+  }, []);
+
+  const pick = useCallback(
+    (pageX: number, locationX: number) => {
+      const w = trackWRef.current;
+      if (w <= 0) return;
+      // 优先用绝对坐标；未测到轨道位置时退回相对坐标
+      const x = trackLeftRef.current > 0 ? pageX - trackLeftRef.current : locationX;
+      if (!Number.isFinite(x)) return;
+      const r = Math.min(1, Math.max(0, x / w));
+      const v = SPEED_STOPS[Math.round(r * (SPEED_STOPS.length - 1))];
+      if (v !== valueRef.current) onChange(v);
+    },
+    [onChange]
+  );
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: (e) => {
+          if (trackLeftRef.current <= 0) measureTrack();
+          pickRef.current(e.nativeEvent.pageX, e.nativeEvent.locationX);
+        },
+        onPanResponderMove: (e) => pickRef.current(e.nativeEvent.pageX, e.nativeEvent.locationX),
+      }),
+    [measureTrack]
+  );
+
+  return (
+    <View style={styles.speedBox}>
+      <View style={styles.speedHead}>
+        <Text style={styles.speedLabel}>动画速度</Text>
+        <Text style={styles.speedVal}>{speedText(value)}</Text>
+      </View>
+      <View
+        ref={trackRef}
+        style={styles.speedTrack}
+        onLayout={(e) => {
+          trackWRef.current = e.nativeEvent.layout.width;
+          setTrackW(e.nativeEvent.layout.width);
+          measureTrack();
+        }}
+        {...pan.panHandlers}
+      >
+        <View style={styles.speedRail} pointerEvents="none" />
+        <View style={[styles.speedFill, { width: ratio * trackW }]} pointerEvents="none" />
+        {SPEED_STOPS.map((s, i) => (
+          <View
+            key={s}
+            pointerEvents="none"
+            style={[
+              styles.speedTick,
+              {
+                left: (i / (SPEED_STOPS.length - 1)) * trackW - 3,
+                backgroundColor: i <= idx ? colors.accent : '#c9d7ea',
+              },
+            ]}
+          />
+        ))}
+        <View
+          style={[styles.speedThumb, { left: ratio * trackW - SPEED_THUMB / 2 }]}
+          pointerEvents="none"
+        />
+      </View>
+      <View style={styles.speedMarks}>
+        {SPEED_STOPS.map((s) => (
+          <Text key={s} style={[styles.speedMarkText, s === value && styles.speedMarkTextOn]}>
+            {speedText(s)}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/* ---------- 画布上的视角平移方向盘（上/下/左/右四向，浮在 3D 画布之上） ---------- */
+type PanDir = 'left' | 'right' | 'up' | 'down';
+
+const PAN_ICONS: Record<PanDir, 'arrow-back' | 'arrow-forward' | 'arrow-up' | 'arrow-down'> = {
+  up: 'arrow-up',
+  down: 'arrow-down',
+  left: 'arrow-back',
+  right: 'arrow-forward',
+};
+
+const PAN_LABELS: Record<PanDir, string> = {
+  up: '视角上移',
+  down: '视角下移',
+  left: '视角左移',
+  right: '视角右移',
+};
+
+/**
+ * 平移按钮：弱化淡灰浮层。外层 box-none 只让按钮自身命中，
+ * 按钮内以 Responder 抢占触摸，按下与滑动都不会透传给下层画布（不触发拖拽/缩放/点击原子）。
+ */
+function PanButton({ dir, onPan }: { dir: PanDir; onPan: (d: PanDir) => void }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <View
+      style={[styles.panBtn, pressed && styles.panBtnPressed]}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderTerminationRequest={() => false}
+      onResponderGrant={() => setPressed(true)}
+      onResponderRelease={() => {
+        setPressed(false);
+        onPan(dir);
+      }}
+      onResponderTerminate={() => setPressed(false)}
+      accessibilityRole="button"
+      accessibilityLabel={PAN_LABELS[dir]}
+    >
+      <Ionicons name={PAN_ICONS[dir]} size={17} color={colors.faint} />
+    </View>
+  );
+}
+
+function CanvasPanPad({
+  top,
+  bottom,
+  onPan,
+}: {
+  top: number;
+  bottom: number;
+  onPan: (dir: PanDir) => void;
+}) {
+  return (
+    <View style={[styles.panLayer, { top, bottom }]} pointerEvents="box-none">
+      <View style={styles.panEdgeTop} pointerEvents="box-none">
+        <PanButton dir="up" onPan={onPan} />
+      </View>
+      <View style={styles.panEdgeBottom} pointerEvents="box-none">
+        <PanButton dir="down" onPan={onPan} />
+      </View>
+      <View style={styles.panEdgeLeft} pointerEvents="box-none">
+        <PanButton dir="left" onPan={onPan} />
+      </View>
+      <View style={styles.panEdgeRight} pointerEvents="box-none">
+        <PanButton dir="right" onPan={onPan} />
+      </View>
+    </View>
+  );
+}
+
 /* ---------- 反应面板 ---------- */
 function ReactionPanel({
   reaction,
@@ -404,12 +617,16 @@ function ReactionPanel({
   onPrev,
   onPlayPause,
   onNext,
+  speed,
+  onSpeed,
 }: {
   reaction: ReactionView;
   state: { step: number; steps: number; playing: boolean };
   onPrev: () => void;
   onPlayPause: () => void;
   onNext: () => void;
+  speed: number;
+  onSpeed: (v: number) => void;
 }) {
   const step = reaction.steps.length ? Math.min(state.step, reaction.steps.length - 1) : 0;
   const active = reaction.steps[step];
@@ -472,6 +689,8 @@ function ReactionPanel({
         </Pressable>
         <RoundBtn icon="play-skip-forward" label="下一步" onPress={onNext} />
       </View>
+
+      <SpeedSlider value={speed} onChange={onSpeed} />
 
       <FoldToggle title={reaction.equation} onToggle={() => setFolded(true)} />
     </View>
@@ -571,7 +790,7 @@ function AtomPanel({
         <View style={styles.covNoteWrap}>
           <Text style={styles.covNote} numberOfLines={2}>
             {atomCtx.molName ? `在 ${atomCtx.molName} 中 · ` : ''}最外层 {atomCtx.valenceE} 个电子中有 {atomCtx.bondE}{' '}
-            个参与共用，金色共用云贴在最外层壳面上（= 共用电子对），共享后满足 2/8 稳定结构
+            个参与共用，橙色共用云贴在最外层壳面上（= 共用电子对），共享后满足 2/8 稳定结构
           </Text>
         </View>
       ) : null}
@@ -594,7 +813,7 @@ function AtomPanel({
         <Text style={styles.segHint}>立体分辨分层 · 俯视逐层数电子</Text>
       </View>
       <Text style={styles.tip}>
-        红=质子 · 灰=中子 · 彩色线框+云=各能层（静态轨迹云） · 金=共用电子对
+        红=质子 · 灰=中子 · 彩色线框+云=各能层（静态轨迹云） · 橙=共用电子对
         {atomCtx?.molName ? ' · 轻点外圈原子核球切换查看' : ''}
       </Text>
 
@@ -705,6 +924,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(22,50,79,0.12)',
+  },
+  roundBtnOn: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+  },
+  labelsWrap: {
+    marginLeft: 8,
+  },
+  aaLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.sub,
+    letterSpacing: 0.5,
+  },
+  aaLabelOn: {
+    color: colors.accent,
   },
   noteWrap: {
     position: 'absolute',
@@ -890,6 +1125,123 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontWeight: '600',
     marginLeft: 4,
+  },
+  panLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  panEdgeTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  panEdgeBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  panEdgeLeft: {
+    position: 'absolute',
+    left: 8,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  panEdgeRight: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  panBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(22,50,79,0.08)',
+  },
+  panBtnPressed: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
+  speedBox: {
+    marginTop: 10,
+  },
+  speedHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  speedLabel: {
+    fontSize: 12,
+    color: colors.sub,
+    fontWeight: '600',
+  },
+  speedVal: {
+    fontSize: 12,
+    color: colors.accent,
+    fontWeight: '800',
+  },
+  speedTrack: {
+    height: 26,
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  speedRail: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 11,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e2ebf8',
+  },
+  speedFill: {
+    position: 'absolute',
+    left: 0,
+    top: 11,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+  },
+  speedTick: {
+    position: 'absolute',
+    top: 10,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  speedThumb: {
+    position: 'absolute',
+    top: 4,
+    width: SPEED_THUMB,
+    height: SPEED_THUMB,
+    borderRadius: SPEED_THUMB / 2,
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: colors.accent,
+    ...shadow.card,
+  },
+  speedMarks: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  speedMarkText: {
+    fontSize: 10,
+    color: colors.faint,
+  },
+  speedMarkTextOn: {
+    color: colors.accent,
+    fontWeight: '800',
   },
   cardTight: {
     paddingVertical: 8,

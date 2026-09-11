@@ -9,6 +9,7 @@ import {
   formulaOfCounts,
   normalizeFormula,
   parseCounts,
+  parseCountsLenient,
   sameFormula,
 } from './formulaBuilder';
 import type { CountMap } from './formulaBuilder';
@@ -83,6 +84,8 @@ const KNOWN_ACIDS: Record<string, { h: number; name: string }> = {
   h2so3: { h: 2, name: '亚硫酸' },
   hno2: { h: 1, name: '亚硝酸' },
   h2c2o4: { h: 2, name: '草酸' },
+  hbr: { h: 1, name: '氢溴酸' },
+  hi: { h: 1, name: '氢碘酸' },
 };
 /** 碱（含 OH 的可电离金属化合物）按氢/氧同数识别 */
 function baseOHCount(counts: CountMap): number | null {
@@ -109,6 +112,26 @@ const OXIDE_OF: Record<string, string> = {
   H: 'H2O', C: 'CO2', S: 'SO2', P: 'P2O5', Na: 'Na2O', K: 'K2O',
   Mg: 'MgO', Ca: 'CaO', Al: 'Al2O3', Zn: 'ZnO', Cu: 'CuO', Fe: 'Fe3O4', Ba: 'BaO',
 };
+
+/** 常见非金属氧化物与水化合（NO₂ 属自身氧化还原歧化，另放出 NO） */
+const OXIDE_WATER: { oxide: string; oxideName: string; prods: string[]; dispro: boolean }[] = [
+  { oxide: 'CO2', oxideName: '二氧化碳', prods: ['H2CO3'], dispro: false },
+  { oxide: 'SO2', oxideName: '二氧化硫', prods: ['H2SO3'], dispro: false },
+  { oxide: 'SO3', oxideName: '三氧化硫', prods: ['H2SO4'], dispro: false },
+  { oxide: 'N2O5', oxideName: '五氧化二氮', prods: ['HNO3'], dispro: false },
+  { oxide: 'P2O5', oxideName: '五氧化二磷', prods: ['H3PO4'], dispro: false },
+  { oxide: 'NO2', oxideName: '二氧化氮', prods: ['HNO3', 'NO'], dispro: true },
+];
+/** 上述水合产物式的常用名 */
+const PROD_CN: Record<string, string> = {
+  H2CO3: '碳酸', H2SO3: '亚硫酸', H2SO4: '硫酸', HNO3: '硝酸', H3PO4: '磷酸', NO: '一氧化氮',
+};
+/** 低价（非金属）氧化物被 O₂ 继续氧化：CO→CO₂、NO→NO₂、SO₂→SO₃ */
+const OXIDE_UPGRADE: { from: string; name: string; prods: string[]; cond: string; desc: string }[] = [
+  { from: 'CO', name: '一氧化碳', prods: ['CO2'], cond: '点燃', desc: 'CO 中 C 为 +2 价，点燃后失电子被氧化为 +4 价（CO₂），火焰呈蓝色。' },
+  { from: 'NO', name: '一氧化氮', prods: ['NO2'], cond: '常温', desc: 'NO 遇氧气立即被氧化：N 由 +2 价升到 +4 价，生成红棕色 NO₂。' },
+  { from: 'SO2', name: '二氧化硫', prods: ['SO3'], cond: '催化剂 · 加热', desc: '工业制硫酸中 SO₂ 在催化剂（如 V₂O₅）作用下被氧化：S 由 +4 价升到 +6 价。' },
+];
 
 type CompoundPart = {
   kind: 'acid' | 'base' | 'salt' | 'element' | 'organic' | 'oxide' | 'other';
@@ -470,6 +493,13 @@ export function deriveDramaFromInputs(rawA: string, rawB: string): MaybeDrama {
   else parts.push(...splitPlus(trimA));
   if (!parts.length) return { drama: null, error: '未识别到有效分子式。' };
   if (parts.length > 3) return { drama: null, error: '暂支持最多 3 个反应物种，请简化输入。' };
+  // 0) 大小写宽容：标准解析失败时按不区分大小写重新解析并还原标准写法（HCL→HCl、NA→Na）
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (parseCounts(p)) continue;
+    const c = parseCountsLenient(p);
+    if (c) parts[i] = formulaOfCounts(c);
+  }
 
   // 1) 直接匹配内容库预置反应（物种集合一致）
   const setKey = (f: string) => {
@@ -516,8 +546,11 @@ function buildStepsForKnown(rx: ReactionData, p: classifyInfo | null, atoms: Cou
   }
   const kind = p.kind;
   const rNames = rx.lhs.map((l) => moleculeById(l.mol)?.name || '').filter(Boolean);
+  // 内容库按“分子式”自动建模的物种没有中文名，回退用分子式，避免步骤文案出现空白
+  const nameFallback = rx.lhs.map((l) => moleculeById(l.mol)?.formula || '').filter(Boolean);
+  const names = rNames.length ? rNames : nameFallback;
   const prodNames = rx.rhs.map((r) => moleculeById(r.mol)?.formula || '').join('、');
-  const st = stepsOf(kind, rNames, rx.equation, prodNames, rx.condition, p);
+  const st = stepsOf(kind, names, rx.equation, prodNames, rx.condition, p);
   // 保留反应库原始 3 步描述的文字，若某步标题相近则融合到对应电子步骤，避免丢失细节
   if (rx.steps.length >= 3) {
     st[1].desc = rx.steps[1]?.desc || st[1].desc;
@@ -649,6 +682,31 @@ function deriveTwo(rawA: string, rawB: string): ReactionDrama | null {
   const [o2p, other] = isO2(a) ? [a, b] : isO2(b) ? [b, a] : [null, null];
   if (o2p && other) {
     const sym = el(other);
+    // 低价氧化物被 O₂ 继续氧化：CO→CO₂、NO→NO₂、SO₂→SO₃
+    const upOx = OXIDE_UPGRADE.find((u) => sameCounts(parseCounts(u.from) || {}, other.counts));
+    if (upOx) {
+      const upC = upOx.prods.map((f) => ({ f, c: parseCounts(f) || {} }));
+      const sol = solve([other.counts, parseCounts('O2') || {}], upC.map((p) => p.c), 10);
+      if (!sol) return null;
+      const lhsSp = [
+        toDramaSpecies(ensureMol(formulaOfCounts(other.counts)), sol[0]),
+        toDramaSpecies(ensureMol('O2'), sol[1]),
+      ];
+      const rhsSp = upC.map((p, i) => toDramaSpecies(ensureMol(p.f), sol[2 + i]));
+      const eq = equationOf(lhsSp, rhsSp);
+      const steps = stepsOf('other', [upOx.name, 'O₂'], eq, upOx.prods.map((f) => displayFormula(f)).join('、'), upOx.cond, {});
+      return {
+        id: 'rx_up_' + upOx.from.toLowerCase(),
+        name: upOx.name + '的继续氧化',
+        equation: eq,
+        condition: upOx.cond,
+        type: '氧化（化合）',
+        level: '必修',
+        desc: upOx.desc,
+        lhs: lhsSp, rhs: rhsSp,
+        steps,
+      };
+    }
     if (other.kind === 'organic' && other.counts.C) {
       const prods = [{ f: 'CO2', c: parseCounts('CO2') || {} }, { f: 'H2O', c: parseCounts('H2O') || {} }];
       const lhsC = [other.counts, parseCounts('O2') || {}];
@@ -736,6 +794,57 @@ function deriveTwo(rawA: string, rawB: string): ReactionDrama | null {
         steps,
         ions: { [sym]: 1 },
         transfers: [{ a: sym, b: 'H', n: 1 }],
+      };
+    }
+  }
+
+  // —— 非金属氧化物（含 NO₂ 歧化）+ 水 → 含氧酸 ——（3NO₂ + H₂O → 2HNO₃ + NO）
+  const wtrP = isWater(a) ? a : isWater(b) ? b : null;
+  const oxideP = wtrP ? (wtrP === a ? b : a) : null;
+  const hydOx = oxideP ? OXIDE_WATER.find((h) => sameCounts(parseCounts(h.oxide) || {}, oxideP.counts)) : null;
+  if (wtrP && oxideP && hydOx) {
+    const h2oC = parseCounts('H2O') || {};
+    const prods = hydOx.prods.map((f) => ({ f, c: parseCounts(f) || {} }));
+    const sol = solve([oxideP.counts, h2oC], prods.map((p) => p.c), 12);
+    if (sol) {
+      const makeM = (f: string, nm?: string): MoleculeData => {
+        const base = ensureMol(f);
+        const merged: MoleculeData = { ...base, formula: displayFormula(f), formulaAscii: f };
+        if (nm) merged.name = nm;
+        return merged;
+      };
+      const lhsSp = [
+        toDramaSpecies(makeM(hydOx.oxide, hydOx.oxideName), sol[0]),
+        toDramaSpecies(makeM('H2O', '水'), sol[1]),
+      ];
+      const rhsSp = prods.map((p, i) => toDramaSpecies(makeM(p.f, PROD_CN[p.f]), sol[2 + i]));
+      const eq = equationOf(lhsSp, rhsSp);
+      const prodTxt = rhsSp.map((s) => s.mol.formula).join('、');
+      const steps: DramaStep[] = hydOx.dispro
+        ? [
+            { title: '写反应物', desc: `${eq} · 红棕色的${hydOx.oxideName}溶于水。`, mode: 'reactants' },
+            { title: '断键 · 拆解', desc: `${hydOx.oxideName}与水接触后，N–O 键和水的 O–H 键断裂，分子结构瓦解。`, mode: 'split' },
+            { title: '电子得失与转移', desc: 'NO₂ 中氮为 +4 价，在水中发生自身氧化还原（歧化）：一部分 N 失去电子升为 +5（NO₃⁻），另一部分 N 得到电子降为 +2（NO）。', mode: 'transfer' },
+            { title: '重新成键 · 生成物', desc: `${prodTxt} · H⁺ 与 NO₃⁻ 结合成硝酸，NO 以气体形式逸出。`, mode: 'products' },
+          ]
+        : [
+            { title: '写反应物', desc: `${eq} · ${hydOx.oxideName}溶于水。`, mode: 'reactants' },
+            { title: '断键 · 拆解', desc: `${hydOx.oxideName}与水接触，氧化物骨架和水的 O–H 键断裂，中心原子与氧/氢碎片重新接近。`, mode: 'split' },
+            { title: '电子得失与转移', desc: '该化合过程无电子得失：非金属元素化合价不变，氧以孤对电子与 H⁺ 配位，构成含氧酸根。', mode: 'transfer' },
+            { title: '重新成键 · 生成物', desc: `${prodTxt} · 中心原子与 –OH 键合生成酸分子（酸性氧化物 + 水 → 含氧酸）。`, mode: 'products' },
+          ];
+      return {
+        id: 'rx_water_' + hydOx.oxide.toLowerCase(),
+        name: hydOx.oxideName + '与水的反应',
+        equation: eq,
+        condition: '',
+        type: hydOx.dispro ? '氧化还原（歧化）' : '化合反应',
+        level: '必修',
+        desc: hydOx.dispro
+          ? 'NO₂ 中 N 为 +4 价，溶于水自身歧化（一部分升为 +5 生成硝酸、另一部分降为 +2 生成 NO）：3NO₂ + H₂O → 2HNO₃ + NO。'
+          : `${hydOx.oxideName}与水化合生成${prodTxt}。`,
+        lhs: lhsSp, rhs: rhsSp,
+        steps,
       };
     }
   }

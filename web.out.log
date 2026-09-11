@@ -1,3 +1,7 @@
+
+> codebuddyproject@1.0.0 web
+> expo start --web
+
 Starting project at C:\Users\zxh\CodeBuddy\codebuddyproject
 Starting Metro Bundler
 
@@ -6,9 +10,93 @@ Waiting on http://localhost:8081
 An update for expo is available: 57.0.20 → ~57.0.21
 0 other packages may need updating. Run npx expo install --check for details.
 Logs for your project will appear below.
-Web Bundled 10446ms index.ts (346 modules)
-Web Bundled 5393ms index.ts (346 modules)
-Web Bundled 496ms index.ts (303 modules)
+Web Bundled 6297ms index.ts (424 modules)
+Web Bundled 525ms index.ts (1 module)
+Web Bundled 634ms index.ts (391 modules)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
+Web Bundled 158ms index.ts (1 module)
+Web Bundled 37ms index.ts (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  WARN  Cannot record touch end without a touch start.
+ Touch End: {"identifier":0,"pageX":603,"pageY":111,"timestamp":2681.5}
+ Touch Bank: []
+Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
+Web  WARN  An error occurred in the <ReactionPanel> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+Web  ERROR  [ReferenceError: PanPad is not defined] 
+
+Code: SceneScreen.tsx
+[0m [90m 610 |[39m       [33m<[39m[33m/[39m[33mView[39m[33m>[39m
+ [90m 611 |[39m
+[31m[1m>[22m[39m[90m 612 |[39m       [33m<[39m[33mPanPad[39m onPan[33m=[39m{onPan} [33m/[39m[33m>[39m
+ [90m     |[39m        [31m[1m^[22m[39m
+ [90m 613 |[39m
+ [90m 614 |[39m       [33m<[39m[33mSpeedSlider[39m value[33m=[39m{speed} onChange[33m=[39m{onSpeed} [33m/[39m[33m>[39m
+ [90m 615 |[39m[0m
+Call Stack
+  ReactionPanel (src\screens\SceneScreen.tsx:612:8) 
+
+Code: SceneScreen.tsx
+[0m [90m 313 |[39m
+ [90m 314 |[39m           {scene[33m.[39mkind [33m===[39m [32m'reaction'[39m [33m&&[39m reaction [33m?[39m (
+[31m[1m>[22m[39m[90m 315 |[39m             [33m<[39m[33mReactionPanel[39m
+ [90m     |[39m             [31m[1m^[22m[39m
+ [90m 316 |[39m               reaction[33m=[39m{reaction}
+ [90m 317 |[39m               state[33m=[39m{rxn [33m?[39m[33m?[39m { step[33m:[39m [35m0[39m[33m,[39m steps[33m:[39m reaction[33m.[39msteps[33m.[39mlength[33m,[39m playing[33m:[39m [36mfalse[39m }}
+ [90m 318 |[39m               onPrev[33m=[39m{() [33m=>[39m send({ cmd[33m:[39m [32m'reaction'[39m[33m,[39m action[33m:[39m [32m'prev'[39m })}[0m
+Call Stack
+  SceneScreen (src\screens\SceneScreen.tsx:315:13)
+  App (App.tsx:40:9)
+Web Bundled 35ms index.ts (1 module)
+Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
+Web  WARN  An error occurred in the <SceneScreen> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+Web  ERROR  [ReferenceError: CanvasPanPad is not defined] 
+
+Code: SceneScreen.tsx
+[0m [90m 287 |[39m         {[90m/* 画布上的视角平移方向盘：上下左右四向浮层，覆盖在 3D 画布之上 */[39m}
+ [90m 288 |[39m         {scene[33m.[39mkind [33m===[39m [32m'reaction'[39m [33m&&[39m reaction [33m?[39m (
+[31m[1m>[22m[39m[90m 289 |[39m           [33m<[39m[33mCanvasPanPad[39m
+ [90m     |[39m            [31m[1m^[22m[39m
+ [90m 290 |[39m             top[33m=[39m{insets[33m.[39mtop [33m+[39m [35m64[39m}
+ [90m 291 |[39m             bottom[33m=[39m{cardH [33m+[39m [35m8[39m}
+ [90m 292 |[39m             onPan[33m=[39m{(dir) [33m=>[39m send({ cmd[33m:[39m [32m'view'[39m[33m,[39m action[33m:[39m [32m'pan'[39m[33m,[39m dir })}[0m
+Call Stack
+  SceneScreen (src\screens\SceneScreen.tsx:289:12) 
+
+Code: App.tsx
+[0m [90m 38 |[39m       [33m<[39m[33mStatusBar[39m style[33m=[39m[32m"dark"[39m [33m/[39m[33m>[39m
+ [90m 39 |[39m       {scene [33m?[39m (
+[31m[1m>[22m[39m[90m 40 |[39m         [33m<[39m[33mSceneScreen[39m
+ [90m    |[39m         [31m[1m^[22m[39m
+ [90m 41 |[39m           key[33m=[39m{scene[33m.[39mkind [33m+[39m [32m':'[39m [33m+[39m scene[33m.[39mid}
+ [90m 42 |[39m           initial[33m=[39m{scene}
+ [90m 43 |[39m           onClose[33m=[39m{closeScene}[0m
+Call Stack
+  App (App.tsx:40:9)
+Web Bundled 15059ms index.ts (424 modules)
+Web Bundled 421ms index.ts (1 module)
+Web Bundled 28ms index.ts (1 module)
 Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
 Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
 Web  LOG  Running application "main" with appParams:
@@ -17,70 +105,7 @@ Development-level warnings: ON.
 Performance optimizations: OFF.
 Web  LOG  [CodeBuddy] Early error capture script injected
 Web  LOG  [CodeBuddy] electronAPI not available, continuing with postMessage
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 26ms index.ts (1 module)
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 371ms index.ts (1 module)
-Web Bundled 28ms index.ts (1 module)
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 37ms index.ts (1 module)
-Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 476ms index.ts (1 module)
-Web Bundled 51ms index.ts (1 module)
-Web Bundled 37ms index.ts (1 module)
-Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 43ms index.ts (1 module)
-Web Bundled 24ms index.ts (1 module)
-Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 339ms index.ts (1 module)
-Web Bundled 24ms index.ts (1 module)
-Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 1184ms index.ts (1 module)
-Web Bundled 37ms index.ts (1 module)
-Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
-Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
-Web  LOG  Running application "main" with appParams:
- {"hydrate": undefined, "rootTag": "#root"} 
-Development-level warnings: ON.
-Performance optimizations: OFF.
-Web  WARN  props.pointerEvents is deprecated. Use style.pointerEvents
-Web Bundled 472ms index.ts (1 module)
 Web Bundled 32ms index.ts (1 module)
-Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
 Web  WARN  "shadow*" style props are deprecated. Use "boxShadow".
 Web  LOG  Running application "main" with appParams:
  {"hydrate": undefined, "rootTag": "#root"} 

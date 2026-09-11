@@ -58,7 +58,7 @@ function dirsFor(k: number, fixed: V3[]): V3[] {
 /* ================= 分子式解析 ================= */
 const SYMBOLS = [
   'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca',
-  'Fe', 'Cu', 'Zn', 'Br', 'I',
+  'Mn', 'Fe', 'Cu', 'Zn', 'Ag', 'Ba', 'Br', 'I',
 ];
 export interface CountMap { [el: string]: number; }
 
@@ -132,6 +132,16 @@ function parseLex(tokens: (string | number)[]): CountMap | null {
 export function parseCounts(raw: string): CountMap | null {
   const s = normalizeFormula(raw);
   if (!s) return null;
+  return parseCountsOf(s);
+}
+/** 大小写宽容解析：先统一转小写再按元素符号库重新切分（HCL→HCl、NA→Na、co2→CO2 等）。
+ *  仅在严格解析失败时作兜底，避免影响库内标准写法的既有路径。 */
+export function parseCountsLenient(raw: string): CountMap | null {
+  const s = normalizeFormula(raw).toLowerCase();
+  if (!s) return null;
+  return parseCountsOf(s);
+}
+function parseCountsOf(s: string): CountMap | null {
   const tokens = lex(s);
   if (!tokens.length) return null;
   const c = parseLex(tokens);
@@ -368,30 +378,38 @@ function buildFromCounts(c: CountMap): BuiltInfo | null {
     const s = buildCarboxylicAcid(nC);
     return s ? { kind: 'acid', name: nameAcid(nC), desc: '含羧基 –COOH 的有机酸。', s } : null;
   }
-  // 简单无机物/不含碳的杂原子化合物：粗略径向排布
-  if (nC === 0 && other.length === 0 && nH > 0 && (nO > 0 || nO === 0 && other.length === 0)) {
-    return null;
-  }
-  if (nC === 0 && Object.keys(c).length <= 3) {
-    const total = Object.values(c).reduce((a, b) => a + b, 0);
+  // 简单无机物 / 含非 C、H、O 元素的化合物（如 Fe₃O₄、Cu(NO₃)₂、KSCN、Fe(SCN)₃）：粗略径向排布
+  const total = Object.values(c).reduce((a, b) => a + b, 0);
+  const distinct = Object.keys(c).length;
+  const hasSpecial = other.length > 0;
+  if ((nC === 0 || hasSpecial) && distinct <= 6) {
+    // 单原子（如金属单质 Fe/Cu/Na、固体碳等）：画一个原子球
+    if (total === 1) {
+      const s = initS();
+      s.atoms.push({ el: Object.keys(c)[0], pos: [0, 0, 0] });
+      return { kind: 'simple', name: '', desc: '单原子（元素单质示意）。', s };
+    }
     if (total < 2) return null;
     const s = initS();
-    const central = Object.keys(c).find((el) => el !== 'H' && (c[el] || 0) >= 1) || Object.keys(c)[0];
+    const central = other.find((el) => (c[el] || 0) >= 1)
+      || Object.keys(c).find((el) => el !== 'H' && (c[el] || 0) >= 1)
+      || Object.keys(c)[0];
     const ci = s.atoms.length;
     s.atoms.push({ el: central, pos: [0, 0, 0] });
-    const others: string[] = [];
+    const around: string[] = [];
     Object.keys(c).forEach((el) => {
       const cnt = c[el] || 0;
-      if (el !== central) for (let i = 0; i < cnt; i++) others.push(el);
+      const start = el === central ? 1 : 0; // 中心取 1 个，其余同类原子也画在外围
+      for (let i = start; i < cnt; i++) around.push(el);
     });
     const golden = Math.PI * (3 - Math.sqrt(5));
-    others.forEach((el, i) => {
+    around.forEach((el, i) => {
       const d = norm([Math.cos(golden * i), Math.sin(golden * i), i % 2 ? 0.7 : -0.7]);
       const oi = s.atoms.length;
       s.atoms.push({ el, pos: mul(d, 1.3 + 0.2 * (i % 3)) });
       s.bonds.push({ a: ci, b: oi, order: 1 });
     });
-    return { kind: 'simple', name: '', desc: '简单无机物近似模型（示意原子连接）。', s };
+    return { kind: 'simple', name: '', desc: '简单化合物近似模型（示意原子连接）。', s };
   }
   return null;
 }

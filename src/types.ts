@@ -7,6 +7,8 @@ export interface ElementData {
   color: string;
   radius: number;
   desc: string;
+  /** 是否为高中常用元素（false = 后期补全的少见元素，界面半透明展示） */
+  core?: boolean;
 }
 
 export type AcidLabel = '强酸' | '弱酸' | '强碱' | '弱碱' | '中性';
@@ -74,7 +76,7 @@ export interface ReactionDramaSpecies {
   count: number;
 }
 
-/** 电子转移：元素 a 的原子向元素 b 的原子转移 n 个电子（拆分/组合阶段的金色小球示意） */
+/** 电子转移：元素 a 的原子向元素 b 的原子转移 n 个电子（拆分/组合阶段的橙黄小球示意） */
 export interface ElectronTransfer {
   a: string;
   b: string;

@@ -1,6 +1,6 @@
 import raw from '../data/content.json';
 import type { AcidLabel, Content, ElementData, MoleculeData, ReactionData, SceneReq } from './types';
-import { buildCatalogOrganic, buildMoleculeForFormula, normalizeFormula, sameFormula } from './formulaBuilder';
+import { buildCatalogOrganic, buildMoleculeForFormula, displayFormula, normalizeFormula, sameFormula } from './formulaBuilder';
 
 export const content = raw as Content;
 
@@ -19,7 +19,28 @@ export function elementBySymbol(symbol: string): ElementData | undefined {
 }
 
 export function moleculeById(id: string): MoleculeData | undefined {
-  return content.molecules.find((m) => m.id === id) ?? catalogMolecules.find((m) => m.id === id);
+  const hit = content.molecules.find((m) => m.id === id) ?? catalogMolecules.find((m) => m.id === id);
+  if (hit) return hit;
+  // 反应库中直接用“分子式”作为物种 id 的条目（如 Fe3O4、HNO3、Cu(NO3)2…），
+  // 未收录进浏览目录时按公式自动建模，保证点击/输入也能进入 3D 演示。
+  const na = normalizeFormula(id);
+  if (!na) return undefined;
+  const gen = buildMoleculeForFormula(na);
+  const made: MoleculeData = {
+    id,
+    name: '',
+    formula: displayFormula(na),
+    category: '反应中间物种',
+    level: '必修',
+    scene: 'molecule',
+    desc: '',
+    formulaAscii: na,
+  };
+  if (gen && gen.atoms && gen.atoms.length) {
+    made.atoms = gen.atoms;
+    made.bonds = gen.bonds;
+  }
+  return made;
 }
 
 export function reactionById(id: string): ReactionData | undefined {

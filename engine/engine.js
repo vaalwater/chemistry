@@ -218,6 +218,8 @@
   /* ---------------- 相机 & 控制 ---------------- */
   var camState = { az: 0.7, pl: 0.42, radius: 10 };
   var camTarget = new THREE.Vector3(0, 0.2, 0);
+  // 观察中心的目标位置：方向键平移 / 分步自动居中都会改写它，主循环里平滑逼近
+  var camTargetGoal = new THREE.Vector3(0, 0.2, 0);
   var autoRotate = false;
   var lastInteract = -10;
   var pointers = new Map();
@@ -242,6 +244,49 @@
     } else {
       camState.radius = clamp(camState.radius, 1.5, 200);
     }
+  }
+
+  /* ---------------- 观察中心平移（水平 / 垂直） ---------------- */
+  var _panFwd = new THREE.Vector3();
+  var _panRight = new THREE.Vector3();
+  var _panUp = new THREE.Vector3();
+  var WORLD_UP = new THREE.Vector3(0, 1, 0);
+
+  // 限制观察中心不要跑出内容太远（以当前视图的“归位中心”为基准）
+  function clampTargetGoal() {
+    if (!view) return;
+    var base = view.homeTarget || camTarget;
+    var lim = Math.max((view.fitR || 1.2) * 2.4, 1.2);
+    camTargetGoal.x = clamp(camTargetGoal.x, base.x - lim, base.x + lim);
+    camTargetGoal.y = clamp(camTargetGoal.y, base.y - lim, base.y + lim);
+    camTargetGoal.z = clamp(camTargetGoal.z, base.z - lim, base.z + lim);
+  }
+
+  // 以“屏幕方向”为基准平移观察中心：left/right 水平，up/down 垂直
+  function panCamera(dir) {
+    if (!view) return;
+    var dx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+    var dy = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
+    if (!dx && !dy) return;
+    var step = Math.max((view.fitR || 1.2) * 0.32, 0.4);
+    _panFwd.subVectors(camTarget, camera.position);
+    if (_panFwd.lengthSq() < 1e-6) _panFwd.set(0, 0, -1);
+    _panFwd.normalize();
+    _panRight.crossVectors(_panFwd, WORLD_UP);
+    if (_panRight.lengthSq() < 1e-6) _panRight.set(1, 0, 0);
+    _panRight.normalize();
+    _panUp.crossVectors(_panRight, _panFwd).normalize();
+    camTargetGoal.addScaledVector(_panRight, dx * step);
+    camTargetGoal.addScaledVector(_panUp, dy * step);
+    clampTargetGoal();
+    lastInteract = performance.now();
+    autoRotate = false;
+  }
+
+  // 把观察中心移到指定点（用于“重置视角”与分步自动居中）
+  function focusTarget(x, y, z) {
+    camTargetGoal.set(x, y, z);
+    clampTargetGoal();
   }
 
   function pointNdc(e) {
@@ -470,6 +515,8 @@
     var r = Math.max(sphere.radius, minR || 1.2);
     var c = sphere.center;
     camTarget.copy(c);
+    camTargetGoal.copy(c);
+    view.homeTarget = c.clone();
     view.fitR = r;
     camState.radius = r * 2.6;
     camState.pl = clamp(camState.pl, 0.3, 0.7);
@@ -514,6 +561,28 @@
     return { root: root, meshes: meshes };
   }
 
+  /* 分子球棍模型上，每个原子的“元素符号”标注（跟随分子一起旋转） */
+  function buildMoleculeLabels(mol) {
+    var g = new THREE.Group();
+    g.name = 'atomLabels';
+    if (!mol.atoms || !mol.atoms.length) return g;
+    mol.atoms.forEach(function (a, i) {
+      var el = elemMap[a.el] ? elemMap[a.el].symbol : a.el;
+      var r = (elemMap[a.el] ? elemMap[a.el].radius : 0.4) * 0.86;
+      var h = clamp(r * 2.1, 0.36, 0.62); // 标签高度随原子半径自适应
+      var spr = textSprite(el, { size: 42, worldH: h, color: '#1e2f4a', bold: true });
+      spr.position.set(a.pos[0], a.pos[1] + r + h * 0.56 + 0.05, a.pos[2]);
+      spr.userData.labelOf = i;
+      g.add(spr);
+    });
+    return g;
+  }
+
+  function setMoleculeLabelsVisible(show) {
+    if (!view || !view.labels) return;
+    view.labels.visible = !!show;
+  }
+
   function showMoleculeScene(id, molData) {
     var mol = molData || molMap[id];
     if (!mol) { showError('未找到分子：' + id); return; }
@@ -530,6 +599,13 @@
       autorotate: true
     };
     fitView(root);
+    // 球棍模型：在原子球上方加元素符号标注（默认显示，可用 view.labels 关闭）
+    if (mol.scene !== 'lattice') {
+      var labels = buildMoleculeLabels(mol);
+      root.add(labels); // 挂在 root 下，随分子一起旋转/平移，且不参与 fitView 包围盒计算
+      view.labels = labels;
+      view.showLabels = true;
+    }
     applyCamMode('solid');
     showHint('拖动旋转 · 滚轮/双指缩放 · 轻点原子查看结构', 2600);
   }
@@ -739,6 +815,11 @@
   }
   // 各能层“轨迹云”配色（由内向外：青 → 蓝 → 紫 → 品红 → 琥珀；在浅色背景上采用饱和深色，更醒目）
   var SHELL_CLOUD_COLORS = ['#0d9c90', '#2a6df4', '#7a48f5', '#e3377f', '#ff7d1a', '#f2b300'];
+  // 共用电子对（共价成键电子）专用高对比配色：白底上远比淡金色醒目
+  var SHARED_PAIR_CSS = '#ff5c00';
+  var SHARED_PAIR_NUM = 0xff5c00;
+  // 电子转移小球（离子型得失电子）用深琥珀色，与共用电子对区分但同样清晰
+  var TRANSFER_ELECTRON_NUM = 0xff8a00;
   // “轨迹云”采样：粒子集中在多条随机倾角的轨道环带上，
   // 环带围绕原子核，立体旋转/俯视时呈现云雾状的轨迹感（非均匀实心球）
   function makeShellSample(R, sigma) {
@@ -822,8 +903,8 @@
       root.add(lab);
     }
   }
-  // 沿键轴方向画“共用电子对电子云”：金黄色云带贴在最外层电子壳外侧，
-  // 表示这些成键电子本就属于该原子的最外层（金色亮带 = 共享后的最外层电子对）
+  // 沿键轴方向画“共用电子对电子云”：高对比橙红色云带贴在最外层电子壳外侧，
+  // 表示这些成键电子本就属于该原子的最外层（醒目亮带 = 共享后的最外层电子对）
   function addSharedCloud(root, dir, nPairs, OR, endSurf) {
     var ref = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
     var u = new THREE.Vector3().crossVectors(dir, ref);
@@ -834,17 +915,17 @@
     var span = Math.max(endSurf - start, 0.55);
     var center = start + span * 0.34;   // 云带主体停留在壳层外侧
     var half = Math.max(span * 0.2, 0.3);
-    addCloud(root, '#ffc94d', 14 + nPairs * 20, 0.52, 0.72, function () {
+    addCloud(root, SHARED_PAIR_CSS, 14 + nPairs * 20, 0.52, 0.72, function () {
       var t = center + randGauss() * half;
       var px = randGauss() * 0.18;
       var py = randGauss() * 0.18;
       return [dir.x * t + u.x * px + v.x * py, dir.y * t + u.y * px + v.y * py, dir.z * t + u.z * px + v.z * py];
     });
-    var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xffcf6b, transparent: true, opacity: 0.16, depthWrite: false }));
+    var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xff7a1a, transparent: true, opacity: 0.3, depthWrite: false }));
     glow.scale.set(span * 1.3, span * 0.6, 1);
     glow.position.set(dir.x * center, dir.y * center, dir.z * center);
     root.add(glow);
-    var dotMat = new THREE.MeshBasicMaterial({ color: 0xffd66a, transparent: true, opacity: 0.95 });
+    var dotMat = new THREE.MeshBasicMaterial({ color: SHARED_PAIR_NUM, transparent: true, opacity: 0.98 });
     for (var p = 0; p < nPairs; p++) {
       var az = p * Math.PI + 0.7;
       var px2 = Math.cos(az) * 0.3;
@@ -877,7 +958,7 @@
       ball.userData = { element: nb.sym, mol: nb.mol || info.molId || null, ai: nb.ai };
       clickables.push(ball);
       root.add(ball);
-      // 共用电子对：金黄色云贴在该原子最外层壳面外侧
+      // 共用电子对：高对比橙红色云贴在该原子最外层壳面外侧
       if (!nb.ionic && nb.order) {
         addSharedCloud(root, dir, nb.order, OR, dist - ballR);
       }
@@ -964,7 +1045,7 @@
       var isValence = (k === valenceIdx);
       var weight = count;
       if (isValence && covNeighbors > 0 && lone <= 0) {
-        weight = 0; // 全成键：该层电子全部以金色共用云出现在壳面外侧
+        weight = 0; // 全成键：该层电子全部以橙红共用云出现在壳面外侧
         valenceSkipped = true;
       } else if (isValence && covNeighbors > 0) {
         weight = lone;
@@ -1009,6 +1090,8 @@
     if (Math.abs(camTarget.x) > 1e-4 || Math.abs(camTarget.y) > 1e-4 || Math.abs(camTarget.z) > 1e-4) {
       root.position.sub(camTarget);
       camTarget.set(0, 0, 0);
+      camTargetGoal.set(0, 0, 0);
+      view.homeTarget = new THREE.Vector3(0, 0, 0);
     }
     applyCamMode('solid');
 
@@ -1017,7 +1100,7 @@
       tip = charge
         ? ('在 ' + ctxMol.name + ' 中，该原子以 ' + ionText(el.symbol, charge) + ' 形式存在')
         : (covNeighbors > 0
-            ? ('在 ' + ctxMol.name + ' 中 · 最外层 ' + valenceE + ' 个 e⁻ 中 ' + bondE + ' 个参与共用，金色共用云贴在最外层壳面 · 轻点外圈原子核球可切换查看')
+            ? ('在 ' + ctxMol.name + ' 中 · 最外层 ' + valenceE + ' 个 e⁻ 中 ' + bondE + ' 个参与共用，橙色共用云贴在最外层壳面 · 轻点外圈原子核球可切换查看')
             : ('在 ' + ctxMol.name + ' 中 · 彩色分层轨迹云示意，无固定轨道'));
     } else {
       tip = '立体视角查看能层分层 · 彩色线框=各层球壳 · 切俯视可逐层数电子 · 八隅体见下方卡片';
@@ -1148,16 +1231,20 @@
    * 4 个模式：
    *   reactants  整分子显示反应物
    *   split      断键：分子层淡出，原子拆解成带元素色的“自由原子”
-   *   transfer   电子得失/转移：金色电子小球定向飞行、离子电荷标签出现
+   *   transfer   电子得失/转移：橙黄色电子小球定向飞行、离子电荷标签出现
    *   products   重新成键：原子移入产物位点，产物分子长出、共用电子对显现
    */
   var reactionState = null;
+  // 反应动画速度倍率（由宿主滑块下发：0.1 / 0.3 / 0.5 / 1 / 1.5）
+  var reactionSpeed = 1;
 
+  // atomOp：未配对到产物位点的自由原子透明度（拆解时出现、成键时淡出）
+  // fragOp：已配对自由原子的透明度——成键一步保持 1，即“原原子直接移动到目标位点”，不再渐变消失
   var RXN_MODES = {
-    reactants: { molOp: 1, atomOp: 0, move: 0, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 0, fx: 0 },
-    split: { molOp: 0, atomOp: 1, move: 0, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 1, fx: 0 },
-    transfer: { molOp: 0, atomOp: 1, move: 0.42, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 1, fx: 1 },
-    products: { molOp: 0, atomOp: 0.001, move: 1, prodOp: 1, prodScale: 1, pairsOp: 1, spread: 0, fx: 0 }
+    reactants: { molOp: 1, atomOp: 0, fragOp: 0, move: 0, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 0, fx: 0 },
+    split: { molOp: 0, atomOp: 1, fragOp: 1, move: 0, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 1, fx: 0 },
+    transfer: { molOp: 0, atomOp: 1, fragOp: 1, move: 0.42, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 1, fx: 1 },
+    products: { molOp: 0, atomOp: 0.001, fragOp: 1, move: 1, prodOp: 1, prodScale: 1, pairsOp: 1, spread: 0, fx: 0 }
   };
   var MODE_ALIAS = {
     reactants: 'reactants', mixing: 'split', split: 'split', break: 'split',
@@ -1198,7 +1285,7 @@
     return out;
   }
 
-  var pairMat = new THREE.MeshBasicMaterial({ color: 0xffd66a });
+  var pairMat = new THREE.MeshBasicMaterial({ color: SHARED_PAIR_NUM });
   function buildReactionScene(id, rx) {
     setStageVisible(true);
     var root = new THREE.Group();
@@ -1314,9 +1401,9 @@
           elLab.visible = false;
           root.add(elLab);
           var off = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(0.95);
-          frags.push({ el: a.el, mesh: mesh, lab: elLab, base: base.clone(), off: off, q: 0, target: base.clone(), spin: 0.5 + Math.random() * 0.8 });
+          frags.push({ el: a.el, mesh: mesh, lab: elLab, base: base.clone(), off: off, q: 0, target: base.clone(), matched: false, spin: 0.5 + Math.random() * 0.8 });
         });
-        // 记录该反应物共价键的键中点：断键时金黄色电子对从键中央飞回两端原子
+        // 记录该反应物共价键的键中点：断键时橙红色电子对从键中央飞回两端原子
         u.bondSeeds = [];
         u.mol.bonds.forEach(function (b) {
           if (!b.order) return;
@@ -1400,6 +1487,7 @@
       for (var i = 0; i < pool.length; i++) {
         if (pool[i].el === sl.el) {
           pool[i].target = sl.p.clone();
+          pool[i].matched = true; // 该原子有产物位点：成键一步保持可见，直接“走”到位点
           pool.splice(i, 1);
           break;
         }
@@ -1427,7 +1515,7 @@
         }
       });
     }
-    // 断键特效：反应物共价键上的金黄色电子对，在拆解瞬间从键中央飞回两端原子
+    // 断键特效：反应物共价键上的橙红色电子对，在拆解瞬间从键中央飞回两端原子
     function spawnBondBreak() {
       lhsUnits.forEach(function (u) {
         if (!u.bondSeeds || !u.bondSeeds.length) return;
@@ -1459,7 +1547,7 @@
         for (var i = 0; i < n; i++) {
           var fd = donors[k % donors.length], fa = accs[k % accs.length];
           k++;
-          var em = new THREE.Mesh(ballGeo(0.16), new THREE.MeshBasicMaterial({ color: 0xffb940 }));
+          var em = new THREE.Mesh(ballGeo(0.16), new THREE.MeshBasicMaterial({ color: TRANSFER_ELECTRON_NUM }));
           root.add(em);
           flights.push({ d: fd, a: fa, mesh: em, t: 0, life: 1.5, seed: Math.random() * 0.6 });
         }
@@ -1470,7 +1558,7 @@
       flights = [];
     }
     // —— 状态机 ——
-    var cur = { molOp: 0, atomOp: 0, move: 0, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 0 };
+    var cur = { molOp: 0, atomOp: 0, fragOp: 0, move: 0, prodOp: 0, prodScale: 0.55, pairsOp: 0, spread: 0 };
     reactionState = {
       rx: rx, step: 0, playing: false, timer: 0, done: false,
       root: root, frags: frags, lhsUnits: lhsUnits, rhsUnits: rhsUnits,
@@ -1478,7 +1566,8 @@
       flights: flights, breakFx: breakFx, fxEntered: false,
       spawnFx: spawnFlights, clearFx: clearFlights,
       spawnBreak: spawnBondBreak, clearBreak: clearBondBreak,
-      refreshLabels: refreshFragLabels
+      refreshLabels: refreshFragLabels,
+      centeredStep: -1
     };
     view = {
       kind: 'reaction', id: id, root: root,
@@ -1491,7 +1580,9 @@
     fitView(root);
     applyCamMode('flat');
     // 画面整体上移：避开底部说明卡，使反应行居中于“顶部导航 ~ 说明卡上方”的可视区中央
-    root.position.y += Math.max(0.6, (view.fitR || 1) * 0.24);
+    // 记录上移量：分步自动居中时按同样比例把观察中心下压，保持内容落在可视区中部
+    view.liftY = Math.max(0.6, (view.fitR || 1) * 0.24);
+    root.position.y += view.liftY;
     showHint('平视视角 · 反应箭头水平向右 · 轻点分子式可查看分子结构 · 拖动观察断键成键', 3000);
     notify({ ev: 'reaction', step: 0, steps: rx.steps.length, playing: false });
   }
@@ -1499,12 +1590,37 @@
   function rxnModeTarget(mode) {
     return RXN_MODES[mode] || RXN_MODES.reactants;
   }
+  // 每步动画结束后把摄像头平移到“当前主角”的包围盒中心，保证大分子/公式完整落在视野中央
+  function centerReactionOnActive() {
+    if (!reactionState || !reactionState.root || !view) return;
+    var st = reactionState;
+    var box = new THREE.Box3();
+    var any = false;
+    var mode = st.mode;
+    if (mode === 'reactants') {
+      st.lhsUnits.forEach(function (u) { box.expandByObject(u.g); any = true; });
+    } else if (mode === 'products') {
+      st.rhsUnits.forEach(function (u) { box.expandByObject(u.g); any = true; });
+    } else {
+      // 断键/电子转移：以散开的自由原子为中心
+      st.frags.forEach(function (f) {
+        if (!f.mesh.visible) return;
+        box.expandByObject(f.mesh);
+        any = true;
+      });
+    }
+    if (!any) return;
+    var c = box.getCenter(new THREE.Vector3());
+    // 反应行整体上移过（view.liftY），这里同步下压观察中心，避免内容被底部说明卡挡住
+    focusTarget(c.x, c.y - (view.liftY || 0), c.z);
+  }
   function stepReactionTo(index) {
     if (!reactionState) return;
     var rx = reactionState.rx;
     index = clamp(index, 0, Math.max(rx.steps.length - 1, 0));
     reactionState.step = index;
     reactionState.timer = 0;
+    reactionState.centeredStep = -1; // 允许本步动画结束后重新自动居中
     var mode = reactionModeOf(index);
     var t = rxnModeTarget(mode);
     reactionState.target = t;
@@ -1534,12 +1650,14 @@
   function tickReaction(dt) {
     if (!reactionState || !reactionState.root) return;
     var st = reactionState, cur = st.cur, t = st.target;
-    // 步骤间动画放慢为原来的 0.5 倍（过渡补间、电子飞行与断键回归共用慢时钟）
-    var adt = dt * 0.5;
+    // 步骤间动画基准放慢为 0.5 倍，再乘以宿主滑块下发的速度倍率（过渡补间、电子飞行与断键回归共用同一时钟）
+    var adt = dt * 0.5 * reactionSpeed;
     var k = 1 - Math.exp(-adt * 1.7);
-    ['molOp', 'atomOp', 'move', 'prodOp', 'prodScale', 'pairsOp', 'spread'].forEach(function (key) {
+    var nearSettled = true; // 视觉上已到位（约 95%），用于触发“分步自动居中”
+    ['molOp', 'atomOp', 'fragOp', 'move', 'prodOp', 'prodScale', 'pairsOp', 'spread'].forEach(function (key) {
       cur[key] += (t[key] - cur[key]) * k;
       if (Math.abs(t[key] - cur[key]) < 0.003) cur[key] = t[key];
+      else if (Math.abs(t[key] - cur[key]) > 0.05) nearSettled = false;
     });
     // 反应物分子层
     st.lhsUnits.forEach(function (u) {
@@ -1556,23 +1674,31 @@
       });
     });
     // 自由原子位置/透明度（spread 使原子在拆解时从原分子处向外弹开，体现“断键”）
+    // 已配对到产物位点的原子（matched）在成键一步保持不透明：原原子直接“走”到位点，不再渐变消失
     st.frags.forEach(function (f) {
+      var op = f.matched ? cur.fragOp : cur.atomOp;
       var p = f.base.clone().addScaledVector(f.off, cur.spread);
       var pos = p.clone().lerp(f.target, cur.move);
-      // 微浮摆动
-      var sw = Math.sin((f.spin * (st.step + 1) * 3.2 + f.base.x * 9)) * 0.06;
-      pos.x += sw; pos.y += Math.cos(f.base.z * 11 + f.spin) * 0.06;
+      // 微浮摆动：成键到位后收敛，保证产物中原子的位置精确、不抖
+      var sway = 1 - clamp((cur.move - 0.82) / 0.18, 0, 1);
+      var sw = Math.sin((f.spin * (st.step + 1) * 3.2 + f.base.x * 9)) * 0.06 * sway;
+      pos.x += sw; pos.y += Math.cos(f.base.z * 11 + f.spin) * 0.06 * sway;
       f.mesh.position.copy(pos);
-      f.mesh.visible = cur.atomOp > 0.02;
-      setOpacityDeep(f.mesh, cur.atomOp);
+      f.mesh.visible = op > 0.02;
+      setOpacityDeep(f.mesh, op);
       // 元素符号 / 离子标注跟随原子
       if (f.lab) {
         f.lab.position.copy(pos);
         f.lab.position.y += 0.72;
-        f.lab.visible = cur.atomOp > 0.1;
-        setOpacityDeep(f.lab, Math.min(cur.atomOp, 1));
+        f.lab.visible = op > 0.1;
+        setOpacityDeep(f.lab, Math.min(op, 1));
       }
     });
+    // 每步动画到位后，把摄像头平移到当前主角（分子/原子）的包围盒中心
+    if (nearSettled && st.centeredStep !== st.step) {
+      st.centeredStep = st.step;
+      centerReactionOnActive();
+    }
     // 电子飞行小球
     for (var i = st.flights.length - 1; i >= 0; i--) {
       var fl = st.flights[i];
@@ -1601,9 +1727,9 @@
       bf.m.position.y += Math.sin(bpr * Math.PI) * 0.5;
       setOpacityDeep(bf.m, bpr > 0.72 ? (1 - (bpr - 0.72) / 0.28) : 1);
     }
-    // 自动播放
+    // 自动播放（每步停留时长同样按倍率缩放）
     if (st.playing) {
-      st.timer += dt;
+      st.timer += dt * reactionSpeed;
       var hold = st.done ? rxnHoldOf('products') + 1.6 : rxnHoldOf(st.mode);
       if (st.timer >= hold) {
         if (st.step < st.rx.steps.length - 1) {
@@ -1644,6 +1770,9 @@
     } else if (action === 'step' && typeof payload === 'number') {
       reactionState.playing = false;
       stepReactionTo(payload);
+    } else if (action === 'speed' && typeof payload === 'number') {
+      // 速度倍率：仅缩放动画与自动播放节拍，不改变播放/暂停状态
+      reactionSpeed = clamp(payload, 0.1, 2);
     }
     notify({ ev: 'reaction', step: reactionState.step, steps: steps.length, playing: reactionState.playing });
   }
@@ -1659,7 +1788,9 @@
     if (autoRotate && now - lastInteract > 1800 && !(view && view.kind === 'reaction' && reactionState && reactionState.playing)) {
       camState.az += dt * 0.3;
     }
-    if (!dragActive) applyCamera();
+    // 观察中心平滑逼近目标（方向键平移 / 分步自动居中）
+    camTarget.lerp(camTargetGoal, 1 - Math.exp(-dt * 9));
+    applyCamera();
     renderer.render(scene, camera);
   }
 
@@ -1693,12 +1824,20 @@
     } else if (cmd === 'view') {
       if (msg.action === 'reset' && view) {
         applyCamMode(view.camMode || (view.kind === 'atom' ? 'top' : 'solid'));
+        // 同时把观察中心归位（方向键平移 / 分步自动居中后可用它复位）
+        if (view.homeTarget) focusTarget(view.homeTarget.x, view.homeTarget.y, view.homeTarget.z);
+      } else if (msg.action === 'pan') {
+        panCamera(msg.dir);
       } else if (msg.action === 'top') {
         applyCamMode('top');
       } else if (msg.action === 'solid') {
         applyCamMode('solid');
       } else if (msg.action === 'autorotate') {
         autoRotate = !!msg.value;
+      } else if (msg.action === 'labels') {
+        // 显示/隐藏分子原子球上的元素符号标注
+        if (view) view.showLabels = !!msg.value;
+        setMoleculeLabelsVisible(!!msg.value);
       } else if (msg.action === 'clearSel') {
         clearSelection();
       }
