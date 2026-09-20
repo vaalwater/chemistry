@@ -67,6 +67,8 @@ export function normalizeFormula(raw: string): string {
   let s = raw.trim().replace(/\s+/g, '');
   s = s.replace(/[₀-₉]/g, (ch) => UNI2[ch] ?? ch);
   s = s.replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰]/g, (ch) => '0123456789'['¹²³⁴⁵⁶⁷⁸⁹⁰'.indexOf(ch)]);
+  // 结构式中的键符号（CH2=CHCN、CH3-COOH、CH2=CH-CN 等）不参与元素计数
+  s = s.replace(/[=≡~·•←→>-]/g, '');
   return s;
 }
 function lex(s: string): (string | number)[] {
@@ -173,6 +175,7 @@ export function sameFormula(aRaw: string, bRaw: string): boolean {
 
 /* ================= 建模核心 ================= */
 const L_H = 1.09, L_CO = 1.43, L_OH = 0.97, L_CC = 1.54, L_CdO = 1.23;
+const L_CN = 1.47, L_NH = 1.01;
 const BOND_LEN = { 1: 1.0, 2: 0.88, 3: 0.78 };
 const orderLen = (o: number): number => L_CC * (BOND_LEN[o as 1 | 2 | 3] ?? 1);
 
@@ -296,6 +299,44 @@ function buildCarboxylicAcid(n: number): S | null {
   }
   return s;
 }
+/** 饱和一元胺 R–NH₂（氨基在链端 0 号碳，N 呈三角锥形并留一对孤对电子） */
+function buildAmine(n: number): S | null {
+  const s = initS();
+  const pts = zigzagPos(Array(Math.max(n - 1, 0)).fill(1) as number[]);
+  const cIdx = pts.map((p) => { s.atoms.push({ el: 'C', pos: p }); return s.atoms.length - 1; });
+  for (let i = 0; i < n - 1; i++) s.bonds.push({ a: cIdx[i], b: cIdx[i + 1], order: 1 });
+  // 氨基挂在 0 号碳：C–N 单键
+  const nDirs = dirsFor(1, n > 1 ? [dirOf(s, cIdx[0], cIdx[1])] : []);
+  const d = nDirs[0];
+  const ni = s.atoms.length;
+  s.atoms.push({ el: 'N', pos: add(s.atoms[cIdx[0]].pos, mul(d, L_CN)) });
+  s.bonds.push({ a: cIdx[0], b: ni, order: 1 });
+  // N 上两个 H：以 N→C 的反方向为轴张开，使 H–N–C 键角约 107°（第三个方向留给孤对电子）
+  const e1 = perp(d);
+  const e2 = norm(cross(d, e1));
+  const back = mul(d, -1);
+  const tilt = (180 - 107) * (Math.PI / 180);
+  for (let j = 0; j < 2; j++) {
+    const az = j * Math.PI;
+    const hd = norm(add(
+      add(mul(back, Math.cos(tilt)), mul(e1, Math.sin(tilt) * Math.cos(az))),
+      mul(e2, Math.sin(tilt) * Math.sin(az)),
+    ));
+    const hi = s.atoms.length;
+    s.atoms.push({ el: 'H', pos: add(s.atoms[ni].pos, mul(hd, L_NH)) });
+    s.bonds.push({ a: ni, b: hi, order: 1 });
+  }
+  // 各碳补足氢（0 号碳已用一个键连 N）
+  for (let i = 0; i < n; i++) {
+    const nb: number[] = [];
+    let used = 0;
+    if (i > 0) { nb.push(cIdx[i - 1]); used += 1; }
+    if (i < n - 1) { nb.push(cIdx[i + 1]); used += 1; }
+    if (i === 0) { nb.push(ni); used += 1; }
+    applyRoles(s, cIdx[i], nb, Array(4 - used).fill('H'));
+  }
+  return s;
+}
 /** 苯环 */
 function buildBenzene(): S {
   const s = initS();
@@ -352,6 +393,13 @@ function nameAcid(n: number): string {
   return cnName('酸', n);
 }
 
+/** 常见类别的习惯写法（结构简式）ASCII 形式，如 CH3NH2 / C2H5OH / CH3COOH；无习惯写法时返回 undefined */
+function structuralAscii(kind: string, nC: number): string | undefined {
+  if (kind === 'amine') return nC === 1 ? 'CH3NH2' : `C${nC}H${2 * nC + 1}NH2`;
+  if (kind === 'alcohol') return nC === 1 ? 'CH3OH' : `C${nC}H${2 * nC + 1}OH`;
+  if (kind === 'acid') return nC === 1 ? 'HCOOH' : nC === 2 ? 'CH3COOH' : `C${nC - 1}H${2 * nC - 1}COOH`;
+  return undefined;
+}
 interface BuiltInfo { kind: string; name: string; desc: string; s: S }
 function buildFromCounts(c: CountMap): BuiltInfo | null {
   const nC = c['C'] || 0, nH = c['H'] || 0, nO = c['O'] || 0;
@@ -377,6 +425,11 @@ function buildFromCounts(c: CountMap): BuiltInfo | null {
   if (other.length === 0 && nC >= 1 && nO === 2 && nH === 2 * nC) {
     const s = buildCarboxylicAcid(nC);
     return s ? { kind: 'acid', name: nameAcid(nC), desc: '含羧基 –COOH 的有机酸。', s } : null;
+  }
+  // 饱和一元胺 R–NH₂（结构简式如 CH₃NH₂、C₂H₅NH₂），通式 CₙH₂ₙ₊₃N
+  if (other.length === 1 && other[0] === 'N' && (c['N'] || 0) === 1 && nO === 0 && nC >= 1 && nH === 2 * nC + 3) {
+    const s = buildAmine(nC);
+    return s ? { kind: 'amine', name: cnName('胺', nC), desc: '饱和一元胺，含氨基 –NH₂：氮原子 sp³ 杂化呈三角锥形，有一对孤对电子。', s } : null;
   }
   // 简单无机物 / 含非 C、H、O 元素的化合物（如 Fe₃O₄、Cu(NO₃)₂、KSCN、Fe(SCN)₃）：粗略径向排布
   const total = Object.values(c).reduce((a, b) => a + b, 0);
@@ -423,12 +476,16 @@ export function buildMoleculeForFormula(raw: string): MoleculeData | null {
   const ascii = formulaOfCounts(counts);
   const neutralAcid: MoleculeData['acidity'] | undefined = info.kind === 'acid'
     ? { label: '弱酸', explain: '羧酸在水中部分电离出 H⁺，显弱酸性（示意）。' }
-    : { label: '中性', explain: '水溶液中难电离，一般呈中性（示意，具体以实验为准）。' };
+    : info.kind === 'amine'
+      ? { label: '弱碱', explain: '氨基氮原子有孤对电子，能结合水中的 H⁺：R–NH₂ + H₂O ⇌ R–NH₃⁺ + OH⁻，显弱碱性。' }
+      : { label: '中性', explain: '水溶液中难电离，一般呈中性（示意，具体以实验为准）。' };
   const hasC = (counts['C'] || 0) > 0;
+  const structural = structuralAscii(info.kind, counts['C'] || 0);
   return {
     id: 'dyn_' + ascii,
     name: info.name || (hasC ? '有机分子 · 近似模型' : '化合物 · 近似模型'),
     formula: displayFormula(ascii),
+    formulaDisplay: structural ? displayFormula(structural) : undefined,
     category: hasC ? '化合物 · 有机物' : '化合物 · 自动建模',
     level: '扩展 · 自动建模',
     scene: 'molecule',
@@ -445,9 +502,11 @@ export function buildCatalogOrganic(): MoleculeData[] {
   const mk = (id: string, name: string, ascii: string, desc: string, kind: string, acidity: MoleculeData['acidity']): MoleculeData | null => {
     const info = buildFromCounts(parseCounts(ascii) || {});
     if (!info) return null;
+    const st = structuralAscii(kind, (parseCounts(ascii) || {})['C'] || 0);
     return {
       id, name,
       formula: displayFormula(ascii),
+      formulaDisplay: st ? displayFormula(st) : undefined,
       category: '化合物 · 有机物', level: '必修', scene: 'molecule',
       desc,
       atoms: info.s.atoms, bonds: info.s.bonds, formulaAscii: ascii,

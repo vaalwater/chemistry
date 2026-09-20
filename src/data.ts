@@ -1,17 +1,22 @@
 import raw from '../data/content.json';
 import type { AcidLabel, Content, ElementData, MoleculeData, ReactionData, SceneReq } from './types';
 import { buildCatalogOrganic, buildMoleculeForFormula, displayFormula, normalizeFormula, sameFormula } from './formulaBuilder';
+import { buildNitrogenCatalog } from './nitrogenLib';
+import { buildBioCatalog } from './nitrogenBio';
 
 export const content = raw as Content;
 
 export const SHELL_LABELS = ['K', 'L', 'M', 'N', 'O', 'P', 'Q'];
 
-/** 内容库之外的扩展有机物（甲烷/乙醇等常见物已在 content.json 内，这里补充 6 个代表物） */
+/** 内容库之外的扩展分子：有机物代表物 + 含氮化合物 + 生物碱/含氮高分子 */
 const catalogMolecules: MoleculeData[] = buildCatalogOrganic();
+const nitrogenMolecules: MoleculeData[] = buildNitrogenCatalog();
+const bioMolecules: MoleculeData[] = buildBioCatalog();
+const extraMolecules: MoleculeData[] = [...catalogMolecules, ...nitrogenMolecules, ...bioMolecules];
 
-/** 全部可浏览分子：内容库 + 扩展有机物 */
+/** 全部可浏览分子：内容库 + 扩展分子 */
 export function allMolecules(): MoleculeData[] {
-  return [...content.molecules, ...catalogMolecules];
+  return [...content.molecules, ...extraMolecules];
 }
 
 export function elementBySymbol(symbol: string): ElementData | undefined {
@@ -19,7 +24,7 @@ export function elementBySymbol(symbol: string): ElementData | undefined {
 }
 
 export function moleculeById(id: string): MoleculeData | undefined {
-  const hit = content.molecules.find((m) => m.id === id) ?? catalogMolecules.find((m) => m.id === id);
+  const hit = content.molecules.find((m) => m.id === id) ?? extraMolecules.find((m) => m.id === id);
   if (hit) return hit;
   // 反应库中直接用“分子式”作为物种 id 的条目（如 Fe3O4、HNO3、Cu(NO3)2…），
   // 未收录进浏览目录时按公式自动建模，保证点击/输入也能进入 3D 演示。

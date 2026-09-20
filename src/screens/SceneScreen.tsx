@@ -7,6 +7,7 @@ import { colors, radii, shadow } from '../theme';
 import {
   acidityTone,
   atomChargeOf,
+  content,
   elementBySymbol,
   electronConfigText,
   electronShellConfigs,
@@ -185,10 +186,20 @@ export default function SceneScreen({ initial, onClose }: Props) {
     };
   }, [scene]);
   const atomMol = scene.kind === 'atom' && scene.molId ? scene.mol ?? moleculeById(scene.molId) : undefined;
+  // 引擎按 scene 下发数据：内容库之外的扩展分子（含氮化合物/生物碱/高分子等）引擎并不认识其 id，
+  // 必须随请求带上原子数据；否则只收到 id 会渲染成空白（搜索命中新分子后进入、原子视图的分子上下文等）
+  const sceneForView = useMemo(() => {
+    const needInject = (m?: MoleculeData): m is MoleculeData =>
+      !!m && !!m.atoms && m.atoms.length > 0 && !content.molecules.some((x) => x.id === m.id);
+    if (scene.mol) return scene;
+    if (scene.kind === 'molecule' && needInject(mol)) return { ...scene, mol };
+    if (scene.kind === 'atom' && needInject(atomMol)) return { ...scene, mol: atomMol };
+    return scene;
+  }, [scene, mol, atomMol]);
   const atomCharge = element && scene.kind === 'atom' ? atomChargeOf(scene, element) : 0;
 
   const title = useMemo(() => {
-    if (scene.kind === 'molecule') return mol ? mol.formula : scene.id;
+    if (scene.kind === 'molecule') return mol ? mol.formulaDisplay ?? mol.formula : scene.id;
     if (scene.kind === 'reaction') return reaction ? reaction.name : scene.id;
     if (element) return atomCharge ? ionChargeText(element.symbol, atomCharge) : element.symbol;
     return scene.id;
@@ -243,7 +254,7 @@ export default function SceneScreen({ initial, onClose }: Props) {
       <View style={StyleSheet.absoluteFill}>
         <Chem3DView
           ref={chemRef}
-          scene={scene}
+          scene={sceneForView}
           onEvent={handleEvent}
         />
       </View>
@@ -284,8 +295,8 @@ export default function SceneScreen({ initial, onClose }: Props) {
           </View>
         </View>
 
-        {/* 画布上的视角平移方向盘：上下左右四向浮层，覆盖在 3D 画布之上 */}
-        {scene.kind === 'reaction' && reaction ? (
+        {/* 画布上的视角平移方向盘：上下左右四向浮层，覆盖在 3D 画布之上（分子浏览与反应场景共用） */}
+        {(scene.kind === 'molecule' && mol) || (scene.kind === 'reaction' && reaction) ? (
           <CanvasPanPad
             top={insets.top + 64}
             bottom={cardH + 8}
@@ -370,7 +381,7 @@ function MoleculePanel({ mol, onAtom }: { mol: MoleculeData; onAtom: (s: string)
   });
   const acid = mol.acidity;
   const tone = acid ? acidityTone(acid.label) : null;
-  const foldTitle = `${mol.name} ${mol.formula}`;
+  const foldTitle = `${mol.name} ${mol.formulaDisplay ?? mol.formula}`;
   if (folded) {
     return (
       <View style={[styles.card, styles.cardTight]}>
@@ -382,7 +393,7 @@ function MoleculePanel({ mol, onAtom }: { mol: MoleculeData; onAtom: (s: string)
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>
-          {mol.name} <Text style={styles.cardFormula}>{mol.formula}</Text>
+          {mol.name} <Text style={styles.cardFormula}>{mol.formulaDisplay ?? mol.formula}</Text>
         </Text>
         <View style={styles.pillRow}>
           <View style={styles.pill}>

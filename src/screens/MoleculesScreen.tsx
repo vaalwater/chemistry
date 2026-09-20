@@ -45,7 +45,9 @@ export default function MoleculesScreen({ onOpen }: Props) {
     }
     setErr(null);
     Keyboard.dismiss();
-    onOpen('molecule', res.mol.id, res.from === 'gen' ? res.mol : undefined);
+    // 内容库之外的扩展分子引擎不认识其 id，需随请求带上原子数据（与点击卡片时一致）
+    const inContent = content.molecules.some((cm) => cm.id === res.mol.id);
+    onOpen('molecule', res.mol.id, inContent ? undefined : res.mol);
   };
 
   const cats: { name: string; list: MoleculeData[] }[] = [];
@@ -120,7 +122,7 @@ export default function MoleculesScreen({ onOpen }: Props) {
                     onPress={() => onOpen('molecule', m.id, inContent ? undefined : m)}
                   >
                     <MoleculeThumb mol={m} />
-                    <Text style={styles.formula}>{m.formula}</Text>
+                    <Text style={styles.formula}>{m.formulaDisplay ?? m.formula}</Text>
                     <Text style={styles.name} numberOfLines={1}>
                       {m.name}
                     </Text>

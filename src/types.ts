@@ -47,6 +47,8 @@ export interface MoleculeData {
   acidity?: AcidInfo;
   /** 原子下标集：该分子与反应等引用相关（无特殊含义时可缺省） */
   formulaAscii?: string;
+  /** 习惯写法 / 结构简式（如 CH₃NH₂、CH₃COOH），仅用于展示；缺省时界面回退到 formula */
+  formulaDisplay?: string;
   view?: { rx?: number; ry?: number; rz?: number };
 }
 
