@@ -1,0 +1,14 @@
+# Normalize line endings to LF in the repository on all platforms.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.keystore binary

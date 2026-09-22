@@ -42,3 +42,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# editor-specific settings
+.vscode/
+
+# local scratch/debug artifacts (temp web builds, ad-hoc servers)
+tmp_*/
+tmp_*.cjs
