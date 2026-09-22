@@ -1,5 +1,12 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import { StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import {
+  PanResponder,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderEvent,
+  type NativeTouchEvent,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, shadow } from '../theme';
 import {
@@ -46,13 +53,6 @@ export function withBenzene(v: BuilderState, cx: number, cy: number, r = 46): Bu
 type PlaceToolId = 'C' | 'ring' | 'O' | 'OH' | 'CHO' | 'COOH' | 'Cl';
 type EditToolId = 'move' | 'bond' | 'double' | 'erase';
 type ToolId = EditToolId | PlaceToolId;
-
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
 
 /** 可以从下方调色板拖上来的原子 / 基团 */
 const PALETTE: { id: PlaceToolId; label: string; glyph: string; hint: string }[] = [
@@ -133,9 +133,6 @@ function glyphOf(id: ToolId): string {
   return p ? p.glyph : String(id);
 }
 
-function inBox(b: Box, x: number, y: number): boolean {
-  return b.w > 0 && x >= b.x && y >= b.y && x <= b.x + b.w && y <= b.y + b.h;
-}
 
 /** 在 around 周围找一个不重叠的位置 */
 function freeSpot(pos: MolNode[], around: MolNode, extra: MolNode[] = [], dist = 54): MolNode {
@@ -202,28 +199,23 @@ export default function StructureBuilder({
   const history = useRef<BuilderState[]>([]);
   const [size, setSize] = useState({ w: 320, h: height });
 
-  // 各区域相对根节点的矩形（根节点坐标系）
-  const canvasBox = useRef<Box>({ x: 0, y: 0, w: 0, h: 0 });
-  const barOff = useRef({ x: 0, y: 0 });
-  const rowOff = useRef({ x: 0, y: 0 });
-  const chipRaw = useRef<Record<string, Box>>({});
-  const chipAbs = useRef<Record<string, Box>>({});
+  const rootRef = useRef<View | null>(null);
+  const canvasRef = useRef<View | null>(null);
+  /**
+   * 窗口绝对坐标（measureInWindow 得到）：根节点原点 + 画板矩形。
+   * 原生端不能用 locationX/locationY —— iOS 上它是相对「被点中的最内层视图」的坐标
+   * （见 RCTTouchHandler.m），和这里的画板 / 根节点坐标系不一致，会让手指位置算错，
+   * 结果就是调色板按住拖不动（判定落在 CHIP 之外，手势压根不接管）。
+   * 统一改用 pageX/pageY + measureInWindow 换算。
+   */
+  const geom = useRef<{ rx: number; ry: number; cx: number; cy: number; cw: number; ch: number } | null>(
+    null
+  );
+  /** 首次测量是异步的（约 1 帧），这期间到达的手势事件排队，测量完成后按原顺序补做 */
+  const queue = useRef<(() => void)[] | null>(null);
+  const measuring = useRef(false);
 
   const note = useCallback((s: string, warn = false) => setMsg({ text: s, warn }), []);
-
-  const recomputeChips = useCallback(() => {
-    const out: Record<string, Box> = {};
-    for (const k of Object.keys(chipRaw.current)) {
-      const c = chipRaw.current[k];
-      out[k] = {
-        x: c.x + rowOff.current.x + barOff.current.x,
-        y: c.y + rowOff.current.y + barOff.current.y,
-        w: c.w,
-        h: c.h,
-      };
-    }
-    chipAbs.current = out;
-  }, []);
 
   const pushHistory = useCallback((v: BuilderState) => {
     history.current.push({ graph: cloneGraph(v.graph), pos: v.pos.map((p) => ({ ...p })) });
@@ -264,20 +256,68 @@ export default function StructureBuilder({
     [note, onChange, pushHistory, size.h, size.w, value]
   );
 
-  /** 根节点坐标 → 画板内坐标 */
-  const canvasPoint = (x: number, y: number) => ({
-    x: x - canvasBox.current.x,
-    y: y - canvasBox.current.y,
-  });
-
-  const onCanvas = (x: number, y: number) => inBox(canvasBox.current, x, y);
-
-  const chipAt = (x: number, y: number): PlaceToolId | null => {
-    for (const k of Object.keys(chipAbs.current)) {
-      if (inBox(chipAbs.current[k], x, y)) return k as PlaceToolId;
-    }
-    return null;
+  /* ---------- 坐标换算：窗口坐标 ↔ 根节点 / 画板本地坐标 ---------- */
+  const pagePoint = (e: GestureResponderEvent | { nativeEvent: NativeTouchEvent }) => {
+    const ev = e.nativeEvent as NativeTouchEvent;
+    const x = Number.isFinite(Number(ev.pageX)) ? Number(ev.pageX) : Number(ev.locationX) || 0;
+    const y = Number.isFinite(Number(ev.pageY)) ? Number(ev.pageY) : Number(ev.locationY) || 0;
+    return { x, y };
   };
+
+  /** 窗口坐标 → 根节点坐标（拖拽幽灵贴在图时用） */
+  const rootPoint = (x: number, y: number) => {
+    const g = geom.current;
+    return g ? { x: x - g.rx, y: y - g.ry } : { x, y };
+  };
+
+  /** 窗口坐标 → 画板内坐标 */
+  const canvasPoint = (x: number, y: number) => {
+    const g = geom.current;
+    return g ? { x: x - g.cx, y: y - g.cy } : { x: 0, y: 0 };
+  };
+
+  /** 这个窗口坐标落在白色画板里吗 */
+  const onCanvas = (x: number, y: number) => {
+    const g = geom.current;
+    if (!g || g.cw <= 0) return false;
+    return x >= g.cx && x <= g.cx + g.cw && y >= g.cy && y <= g.cy + g.ch;
+  };
+
+  const flushQueue = useCallback(() => {
+    const q = queue.current;
+    queue.current = null;
+    if (!q) return;
+    for (const fn of q) fn();
+  }, []);
+
+  /** 拿到绝对坐标后再执行；首次测量期间的事件排队补做 */
+  const runWithGeom = useCallback(
+    (fn: () => void) => {
+      if (geom.current) {
+        fn();
+        return;
+      }
+      if (!queue.current) queue.current = [];
+      queue.current.push(fn);
+      if (measuring.current) return;
+      const root = rootRef.current;
+      const canvas = canvasRef.current;
+      if (!root || !canvas) {
+        flushQueue();
+        return;
+      }
+      measuring.current = true;
+      root.measureInWindow((rx, ry) => {
+        canvas.measureInWindow((cx, cy, cw, ch) => {
+          geom.current = { rx, ry, cx, cy, cw, ch };
+          if (cw > 0 && ch > 0) setSize((prev) => (prev.w === cw && prev.h === ch ? prev : { w: cw, h: ch }));
+          measuring.current = false;
+          flushQueue();
+        });
+      });
+    },
+    [flushQueue]
+  );
 
   const nodeAt = (x: number, y: number, r = NODE_R + 8): number | null => {
     let best: number | null = null;
@@ -468,147 +508,186 @@ export default function StructureBuilder({
     y: Math.max(16, Math.min(size.h - 16, p.y)),
   });
 
-  /* ---------- 手势（全部由根节点接管） ---------- */
+  /* ---------- 手势：调色板格子自己接管拖拽，画板自己接管编辑 ---------- */
+  /* 说明：以前整个组件只有根节点接管手势，靠“逐层累加 onLayout 偏移”算出每个格子的位置；
+     原生端这套相对坐标对不上（见上方 geom 注释），改成格子各自响应后不再需要算格子矩形。 */
 
-  const shouldStart = useCallback(
-    (x: number, y: number) => onCanvas(x, y) || chipAt(x, y) !== null,
-    []
-  );
-
-  const onGrant = (x: number, y: number) => {
-    onDragStateChange?.(true);
-    const chip = chipAt(x, y);
-    if (chip) {
-      // 从下方格子开始拖
-      gesture.current = { id: chip, x0: x, y0: y, moved: false, source: 'chip' };
-      setTool(chip);
-      setDrag({ x, y, id: chip });
+  /** 从下方调色板格子开始拖（窗口坐标） */
+  const chipGrant = (id: PlaceToolId, x: number, y: number) => {
+    geom.current = null; // 页面可能滚动过，本次手势重新量一次绝对坐标
+    runWithGeom(() => {
+      onDragStateChange?.(true);
+      gesture.current = { id, x0: x, y0: y, moved: false, source: 'chip' };
+      setTool(id);
+      const r = rootPoint(x, y);
+      setDrag({ x: r.x, y: r.y, id });
       note('拖到上面的白色画板里松手');
-      return;
-    }
-    if (!onCanvas(x, y)) return;
-    gesture.current = { id: tool as PlaceToolId, x0: x, y0: y, moved: false, source: 'canvas' };
-    snapshot.current = { graph: cloneGraph(value.graph), pos: value.pos.map((p) => ({ ...p })) };
-    const p = canvasPoint(x, y);
-    const hit = nodeAt(p.x, p.y);
-
-    // 点（按）在已有原子上：自动切到「移动」，直接拖这个原子，不会误加新原子 / 误删
-    if (hit !== null && (PLACE_IDS.indexOf(tool) >= 0 || tool === 'double')) {
-      setTool('move');
-      dragNode.current = hit;
-      note('点到原子了，已切到「移动」模式：拖动它换位置；要连键请切「连线」模式', true);
-      return;
-    }
-
-    if (tool === 'move') {
-      dragNode.current = hit;
-    } else if (tool === 'bond') {
-      bondFrom.current = hit;
-      if (hit === null) note('「连线」模式：按住一个原子，再拖到另一个原子上松手');
-    } else if (PLACE_IDS.indexOf(tool) >= 0) {
-      setDrag({ x, y, id: tool });
-    }
+    });
   };
 
-  const onMove = (x: number, y: number) => {
+  const chipMove = (x: number, y: number) => {
     const gs = gesture.current;
-    if (!gs) return;
+    if (!gs || gs.source !== 'chip') return;
     if (Math.hypot(x - gs.x0, y - gs.y0) > 4) gs.moved = true;
-    if (gs.source === 'chip') {
-      setDrag({ x, y, id: gs.id });
-      return;
-    }
-    if (!onCanvas(x, y)) return;
-    const p = canvasPoint(x, y);
-    if (tool === 'bond' && bondFrom.current !== null && gs.moved) {
-      const a = value.pos[bondFrom.current];
-      setRubber({ x1: a.x, y1: a.y, x2: p.x, y2: p.y });
-      return;
-    }
-    if (tool === 'move' && dragNode.current !== null) {
-      const i = dragNode.current;
-      const pos = value.pos.map((q) => ({ ...q }));
-      pos[i] = clampToCanvas(p);
-      onChange({ graph: value.graph, pos });
-      return;
-    }
-    if (PLACE_IDS.indexOf(tool) >= 0) setDrag({ x, y, id: tool });
+    runWithGeom(() => {
+      const r = rootPoint(x, y);
+      setDrag({ x: r.x, y: r.y, id: gs.id });
+    });
   };
 
-  const onRelease = (x: number, y: number) => {
+  const chipRelease = (x: number, y: number) => {
     const gs = gesture.current;
-    gesture.current = null;
-    setDrag(null);
-    onDragStateChange?.(false);
-
-    if (gs && gs.source === 'chip') {
+    if (!gs || gs.source !== 'chip') return;
+    runWithGeom(() => {
+      gesture.current = null;
+      setDrag(null);
+      onDragStateChange?.(false);
       if (!onCanvas(x, y)) {
         note(gs.moved ? '松手的位置要在白色画板里，把原子/基团拖上去再放手' : '', gs.moved);
         return;
       }
       const p = canvasPoint(x, y);
       place(gs.id, p.x, p.y);
-      return;
-    }
-    if (!onCanvas(x, y)) {
-      dragNode.current = null;
-      bondFrom.current = null;
-      setRubber(null);
-      snapshot.current = null;
-      return;
-    }
-    const p = canvasPoint(x, y);
+    });
+  };
 
-    if (tool === 'bond') {
-      const from = bondFrom.current;
-      bondFrom.current = null;
-      setRubber(null);
-      snapshot.current = null;
-      // 点在键上（没拖动）：双击这条键 = 单键 / 双键来回切换
-      // 注意：键很短的时候中点也可能落在原子的判定圈里，所以这里用更小的原子半径，
-      // 只要不是明确点在原子上，就当成“点键”
-      if (gs && !gs.moved) {
-        const bd = nodeAt(p.x, p.y, NODE_R + 2) === null ? bondAt(p.x, p.y) : null;
-        if (bd) {
-          const now = Date.now();
-          const last = lastTap.current;
-          if (last && last.a === bd.a && last.b === bd.b && now - last.t <= DOUBLE_TAP_MS) {
-            lastTap.current = null;
-            toggleDouble(p.x, p.y);
-            return;
-          }
-          lastTap.current = { a: bd.a, b: bd.b, t: now };
-          note('再点一下这条键，就能在单键和双键之间切换');
-          return;
-        }
+  const chipCancel = () => {
+    if (!gesture.current || gesture.current.source !== 'chip') return;
+    gesture.current = null;
+    setDrag(null);
+    onDragStateChange?.(false);
+  };
+
+  /** 按（拖）在白色画板上 */
+  const canvasGrant = (x: number, y: number) => {
+    geom.current = null; // 同上：本次手势重新量一次
+    runWithGeom(() => {
+      onDragStateChange?.(true);
+      gesture.current = {
+        id: tool as PlaceToolId,
+        x0: x,
+        y0: y,
+        moved: false,
+        source: 'canvas',
+      };
+      snapshot.current = { graph: cloneGraph(value.graph), pos: value.pos.map((p) => ({ ...p })) };
+      const p = canvasPoint(x, y);
+      const hit = nodeAt(p.x, p.y);
+
+      // 点（按）在已有原子上：自动切到「移动」，直接拖这个原子，不会误加新原子 / 误删
+      if (hit !== null && (PLACE_IDS.indexOf(tool) >= 0 || tool === 'double')) {
+        setTool('move');
+        dragNode.current = hit;
+        note('点到原子了，已切到「移动」模式：拖动它换位置；要连键请切「连线」模式', true);
+        return;
       }
-      const to = nodeNear(p.x, p.y, LOOP_SNAP, from);
-      if (from === null) note('「连线」模式：按住一个原子，再拖到另一个原子上松手');
-      else if (to === null || to === from) note('要拖到另一个原子上松手才能连线', true);
-      else connectBond(from, to);
-      return;
-    }
 
-    if (tool === 'move') {
-      const i = dragNode.current;
-      dragNode.current = null;
-      if (i === null || !gs || !gs.moved) {
+      if (tool === 'move') {
+        dragNode.current = hit;
+      } else if (tool === 'bond') {
+        bondFrom.current = hit;
+        if (hit === null) note('「连线」模式：按住一个原子，再拖到另一个原子上松手');
+      } else if (PLACE_IDS.indexOf(tool) >= 0) {
+        const r = rootPoint(x, y);
+        setDrag({ x: r.x, y: r.y, id: tool });
+      }
+    });
+  };
+
+  const canvasMove = (x: number, y: number) => {
+    const gs = gesture.current;
+    if (!gs || gs.source !== 'canvas') return;
+    if (Math.hypot(x - gs.x0, y - gs.y0) > 4) gs.moved = true;
+    runWithGeom(() => {
+      if (!onCanvas(x, y)) return;
+      const p = canvasPoint(x, y);
+      if (tool === 'bond' && bondFrom.current !== null && gs.moved) {
+        const a = value.pos[bondFrom.current];
+        setRubber({ x1: a.x, y1: a.y, x2: p.x, y2: p.y });
+        return;
+      }
+      if (tool === 'move' && dragNode.current !== null) {
+        const i = dragNode.current;
+        const pos = value.pos.map((q) => ({ ...q }));
+        pos[i] = clampToCanvas(p);
+        onChange({ graph: value.graph, pos });
+        return;
+      }
+      if (PLACE_IDS.indexOf(tool) >= 0) {
+        const r = rootPoint(x, y);
+        setDrag({ x: r.x, y: r.y, id: tool });
+      }
+    });
+  };
+
+  const canvasRelease = (x: number, y: number) => {
+    const gs = gesture.current;
+    if (!gs || gs.source !== 'canvas') return;
+    gesture.current = null;
+    setDrag(null);
+    onDragStateChange?.(false);
+    runWithGeom(() => {
+      if (!onCanvas(x, y)) {
+        dragNode.current = null;
+        bondFrom.current = null;
+        setRubber(null);
         snapshot.current = null;
         return;
       }
-      const pos = value.pos.map((q) => ({ ...q }));
-      pos[i] = clampToCanvas(p);
-      commitWithSnapshot({ graph: value.graph, pos });
-      return;
-    }
+      const p = canvasPoint(x, y);
 
-    snapshot.current = null;
-    if (tool === 'erase') eraseAt(p.x, p.y);
-    else if (tool === 'double') toggleDouble(p.x, p.y);
-    else if (PLACE_IDS.indexOf(tool) >= 0) place(tool, p.x, p.y);
+      if (tool === 'bond') {
+        const from = bondFrom.current;
+        bondFrom.current = null;
+        setRubber(null);
+        snapshot.current = null;
+        // 点在键上（没拖动）：双击这条键 = 单键 / 双键来回切换
+        // 注意：键很短的时候中点也可能落在原子的判定圈里，所以这里用更小的原子半径，
+        // 只要不是明确点在原子上，就当成“点键”
+        if (gs && !gs.moved) {
+          const bd = nodeAt(p.x, p.y, NODE_R + 2) === null ? bondAt(p.x, p.y) : null;
+          if (bd) {
+            const now = Date.now();
+            const last = lastTap.current;
+            if (last && last.a === bd.a && last.b === bd.b && now - last.t <= DOUBLE_TAP_MS) {
+              lastTap.current = null;
+              toggleDouble(p.x, p.y);
+              return;
+            }
+            lastTap.current = { a: bd.a, b: bd.b, t: now };
+            note('再点一下这条键，就能在单键和双键之间切换');
+            return;
+          }
+        }
+        const to = nodeNear(p.x, p.y, LOOP_SNAP, from);
+        if (from === null) note('「连线」模式：按住一个原子，再拖到另一个原子上松手');
+        else if (to === null || to === from) note('要拖到另一个原子上松手才能连线', true);
+        else connectBond(from, to);
+        return;
+      }
+
+      if (tool === 'move') {
+        const i = dragNode.current;
+        dragNode.current = null;
+        if (i === null || !gs || !gs.moved) {
+          snapshot.current = null;
+          return;
+        }
+        const pos = value.pos.map((q) => ({ ...q }));
+        pos[i] = clampToCanvas(p);
+        commitWithSnapshot({ graph: value.graph, pos });
+        return;
+      }
+
+      snapshot.current = null;
+      if (tool === 'erase') eraseAt(p.x, p.y);
+      else if (tool === 'double') toggleDouble(p.x, p.y);
+      else if (PLACE_IDS.indexOf(tool) >= 0) place(tool, p.x, p.y);
+    });
   };
 
-  const onTerminate = () => {
+  const canvasCancel = () => {
+    if (!gesture.current || gesture.current.source !== 'canvas') return;
     gesture.current = null;
     dragNode.current = null;
     bondFrom.current = null;
@@ -617,6 +696,76 @@ export default function StructureBuilder({
     setDrag(null);
     onDragStateChange?.(false);
   };
+
+  /** PanResponder 的回调在创建时就固化了，统一走 ref 转发，避免闭包过期 */
+  const live = useRef({
+    chipGrant,
+    chipMove,
+    chipRelease,
+    chipCancel,
+    canvasGrant,
+    canvasMove,
+    canvasRelease,
+    canvasCancel,
+  });
+  live.current = {
+    chipGrant,
+    chipMove,
+    chipRelease,
+    chipCancel,
+    canvasGrant,
+    canvasMove,
+    canvasRelease,
+    canvasCancel,
+  };
+
+  const chipPans = useMemo(
+    () =>
+      PALETTE.map((t) =>
+        PanResponder.create({
+          onStartShouldSetPanResponder: () => true,
+          onMoveShouldSetPanResponder: () => true,
+          onPanResponderTerminationRequest: () => false,
+          onPanResponderGrant: (e) => {
+            const p = pagePoint(e);
+            live.current.chipGrant(t.id, p.x, p.y);
+          },
+          onPanResponderMove: (e) => {
+            const p = pagePoint(e);
+            live.current.chipMove(p.x, p.y);
+          },
+          onPanResponderRelease: (e) => {
+            const p = pagePoint(e);
+            live.current.chipRelease(p.x, p.y);
+          },
+          onPanResponderTerminate: () => live.current.chipCancel(),
+        })
+      ),
+    []
+  );
+
+  const canvasPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: (e) => {
+          const p = pagePoint(e);
+          live.current.canvasGrant(p.x, p.y);
+        },
+        onPanResponderMove: (e) => {
+          const p = pagePoint(e);
+          live.current.canvasMove(p.x, p.y);
+        },
+        onPanResponderRelease: (e) => {
+          const p = pagePoint(e);
+          live.current.canvasRelease(p.x, p.y);
+        },
+        onPanResponderTerminate: () => live.current.canvasCancel(),
+      }),
+    []
+  );
 
   const undo = () => {
     const prev = history.current.pop();
@@ -741,26 +890,18 @@ export default function StructureBuilder({
   const hintWarn = !!msg.text && msg.warn;
 
   return (
-    <View
-      style={styles.wrap}
-      collapsable={false}
-      onStartShouldSetResponder={(e: GestureResponderEvent) =>
-        shouldStart(e.nativeEvent.locationX, e.nativeEvent.locationY)
-      }
-      onMoveShouldSetResponder={() => false}
-      onResponderGrant={(e) => onGrant(e.nativeEvent.locationX, e.nativeEvent.locationY)}
-      onResponderMove={(e) => onMove(e.nativeEvent.locationX, e.nativeEvent.locationY)}
-      onResponderRelease={(e) => onRelease(e.nativeEvent.locationX, e.nativeEvent.locationY)}
-      onResponderTerminate={onTerminate}
-    >
+    <View ref={rootRef} style={styles.wrap} collapsable={false}>
       <View style={styles.stage}>
         <View
+          ref={canvasRef}
           style={[styles.canvas, { height }]}
+          collapsable={false}
           onLayout={(e) => {
-            const { x, y, width, height: h } = e.nativeEvent.layout;
-            canvasBox.current = { x, y, w: width, h };
-            setSize({ w: width, h });
+            const { width, height: h } = e.nativeEvent.layout;
+            setSize((prev) => (prev.w === width && prev.h === h ? prev : { w: width, h }));
+            geom.current = null; // 布局变了，下次手势重新量绝对坐标
           }}
+          {...canvasPan.panHandlers}
         >
           {empty && !drag ? (
             <Text style={styles.placeholder}>画板是空的，从下面拖一个原子或官能团上来。</Text>
@@ -828,29 +969,26 @@ export default function StructureBuilder({
             </View>
           )}
         </View>
+      </View>
 
-        {/* 画板右侧：模式切换 + 撤销 */}
-        <View style={styles.side}>
-          {MODES.map((m) => {
-            const on = tool === m.id;
-            return (
-              <Text
-                key={m.id}
-                onPress={() => {
-                  setTool(m.id);
-                  note(m.hint);
-                }}
-                style={[styles.sideBtn, on && styles.sideBtnOn]}
-              >
-                {m.label}
-              </Text>
-            );
-          })}
-          <View style={styles.sideDivider} />
-          <Text onPress={undo} style={[styles.sideBtn, styles.sideBtnUndo]}>
-            撤销
-          </Text>
-        </View>
+      {/* 工具条：移到画板下方横向排列，画板宽度不再被右侧竖排按钮占掉 */}
+      <View style={styles.toolBar}>
+        {MODES.map((m) => (
+          <ToolButton
+            key={m.id}
+            label={m.label}
+            active={tool === m.id}
+            onPress={() => {
+              setTool(m.id);
+              note(m.hint);
+            }}
+          />
+        ))}
+        <View style={styles.toolDivider} />
+        <ToolButton label="撤销" accent onPress={undo} />
+        <View style={styles.toolSpacer} />
+        <ToolButton label="重排" onPress={tidy} />
+        <ToolButton label="清空" danger onPress={clearAll} />
       </View>
 
       {drag ? (
@@ -879,33 +1017,18 @@ export default function StructureBuilder({
         </Text>
       )}
 
-      <View
-        style={styles.paletteBar}
-        onLayout={(e) => {
-          barOff.current = { x: e.nativeEvent.layout.x, y: e.nativeEvent.layout.y };
-          recomputeChips();
-        }}
-      >
+      <View style={styles.paletteBar}>
         <Text style={styles.paletteTitle}>按住下面的格子，往上拖到画板里</Text>
-        <View
-          style={styles.palette}
-          onLayout={(e) => {
-            rowOff.current = { x: e.nativeEvent.layout.x, y: e.nativeEvent.layout.y };
-            recomputeChips();
-          }}
-        >
-          {PALETTE.map((t) => {
+        <View style={styles.palette}>
+          {PALETTE.map((t, ci) => {
             const on = tool === t.id;
             return (
               <View
                 key={t.id}
                 style={[styles.chip, on && styles.chipOn]}
                 collapsable={false}
-                onLayout={(e) => {
-                  const { x, y, width, height: h } = e.nativeEvent.layout;
-                  chipRaw.current[t.id] = { x, y, w: width, h };
-                  recomputeChips();
-                }}
+                // 每个格子自己接管手势：不再依赖“算格子的位置”，原生端也能稳定触发拖拽
+                {...chipPans[ci].panHandlers}
               >
                 <View style={[styles.chipDot, { backgroundColor: CHIP_COLOR[t.id] }]}>
                   <Text style={styles.chipGlyph}>{t.glyph}</Text>
@@ -916,15 +1039,59 @@ export default function StructureBuilder({
           })}
         </View>
       </View>
+    </View>
+  );
+}
 
-      <View style={styles.ops}>
-        <Text onPress={tidy} style={styles.op}>
-          重排
-        </Text>
-        <Text onPress={clearAll} style={[styles.op, { color: colors.red }]}>
-          清空
-        </Text>
-      </View>
+/**
+ * 工具条上的按钮：自己用 Responder 抢占触摸，
+ * 保证在画板 / 页面滚动等父级手势之上仍能被准确点到。
+ */
+function ToolButton({
+  label,
+  active,
+  accent,
+  danger,
+  onPress,
+}: {
+  label: string;
+  active?: boolean;
+  accent?: boolean;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <View
+      style={[
+        styles.toolBtn,
+        active && styles.toolBtnOn,
+        accent && styles.toolBtnAccent,
+        danger && styles.toolBtnDanger,
+        pressed && styles.toolBtnPressed,
+      ]}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderTerminationRequest={() => false}
+      onResponderGrant={() => setPressed(true)}
+      onResponderRelease={() => {
+        setPressed(false);
+        onPress();
+      }}
+      onResponderTerminate={() => setPressed(false)}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
+    >
+      <Text
+        style={[
+          styles.toolBtnText,
+          active && styles.toolBtnTextOn,
+          accent && styles.toolBtnTextAccent,
+          danger && styles.toolBtnTextDanger,
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -969,22 +1136,37 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...shadow.card,
   },
-  side: { width: 48, gap: 6, paddingTop: 2 },
-  sideBtn: {
-    textAlign: 'center',
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: colors.inkSoft,
+  toolBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: '#FFFFFF',
+    borderRadius: radii.card,
     borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: 10,
+    paddingHorizontal: 8,
     paddingVertical: 6,
-    overflow: 'hidden',
   },
-  sideBtnOn: { backgroundColor: colors.accent, borderColor: colors.accent, color: '#FFFFFF' },
-  sideBtnUndo: { color: colors.accent },
-  sideDivider: { height: 1, backgroundColor: colors.line, marginVertical: 1 },
+  toolBtn: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 10,
+    backgroundColor: '#F4F8FF',
+    borderWidth: 1,
+    borderColor: colors.line,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toolBtnOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  toolBtnPressed: { opacity: 0.7 },
+  toolBtnAccent: { backgroundColor: colors.accentSoft, borderColor: '#C9DDFB' },
+  toolBtnDanger: { backgroundColor: '#FDECEA', borderColor: '#F6CFCB' },
+  toolBtnText: { fontSize: 12, fontWeight: '700', color: colors.inkSoft },
+  toolBtnTextOn: { color: '#FFFFFF' },
+  toolBtnTextAccent: { color: colors.accent },
+  toolBtnTextDanger: { color: colors.red },
+  toolDivider: { width: 1, height: 20, backgroundColor: colors.line },
+  toolSpacer: { flex: 1, minWidth: 4 },
   panLayer: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
   panEdgeTop: { position: 'absolute', top: 3, left: 0, right: 0, alignItems: 'center' },
   panEdgeBottom: { position: 'absolute', bottom: 3, left: 0, right: 0, alignItems: 'center' },
@@ -1092,6 +1274,4 @@ const styles = StyleSheet.create({
   chipGlyph: { color: '#FFFFFF', fontWeight: '800', fontSize: 12.5 },
   chipLabel: { fontSize: 11.5, fontWeight: '600', color: colors.inkSoft },
   chipLabelOn: { color: colors.accent },
-  ops: { flexDirection: 'row', gap: 16, justifyContent: 'flex-end' },
-  op: { fontSize: 12.5, fontWeight: '600', color: colors.accent },
 });

@@ -38,6 +38,11 @@ const ChemWebViewHost = forwardRef<ChemHostHandle, ChemWebViewHostProps>(
         javaScriptEnabled
         domStorageEnabled
         allowFileAccess
+        // 关掉 WebView 自己的滚动/回弹与多指缩放，双指才能完整交给 3D 画布
+        scrollEnabled={false}
+        bounces={false}
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
         onLoadEnd={onLoad}
         onMessage={(e) => {
           try {

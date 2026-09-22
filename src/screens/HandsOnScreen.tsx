@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, shadow } from '../theme';
 import { PROBLEMS, type IsoProblem } from '../iso/problems';
@@ -36,6 +37,7 @@ export default function HandsOnScreen({
 }) {
   const [view, setView] = useState<ViewKey>('home');
   const [problem, setProblem] = useState<IsoProblem | null>(null);
+  const insets = useSafeAreaInsets();
 
   if (view === 'play' && problem) {
     return <IsoPlayScreen problem={problem} onBack={() => setView('list')} />;
@@ -54,7 +56,8 @@ export default function HandsOnScreen({
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
+      {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.title}>动手</Text>
         <Text style={styles.subtitle}>搭一搭、写一写，把知识用起来</Text>
       </View>

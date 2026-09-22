@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme';
 
 const sections: { title: string; body: string }[] = [
@@ -29,9 +30,11 @@ const sections: { title: string; body: string }[] = [
 ];
 
 export default function AboutScreen() {
+  const insets = useSafeAreaInsets();
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.title}>关于</Text>
         <Text style={styles.subtitle}>高中化学 · 3D 分子课堂</Text>
       </View>

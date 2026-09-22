@@ -3,6 +3,9 @@ html, body {
   overflow: hidden; background: transparent;
   -webkit-user-select: none; user-select: none;
   -webkit-tap-highlight-color: transparent;
+  /* 关掉系统级的滑动 / 双指缩放，让双指完整交给画布自己处理 */
+  touch-action: none;
+  overscroll-behavior: none;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
 }
 #app {

@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Chem3DView, { type Chem3DHandle } from '../components/Chem3DView';
 import RatioSlider from '../components/RatioSlider';
@@ -59,6 +60,7 @@ export default function RadiusLabScreen({
   const [ratio, setRatio] = useState(startRatio);
   const [showCrit, setShowCrit] = useState(true);
   const [mode, setMode] = useState<Mode>(entry?.applyId ? 'apply' : 'explore');
+  const insets = useSafeAreaInsets();
 
   const chemRef = useRef<Chem3DHandle | null>(null);
   const ratioRef = useRef(ratio);
@@ -101,7 +103,8 @@ export default function RadiusLabScreen({
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
+      {/* 全屏子页面：给状态栏（时间/信号）让出安全区，否则返回按钮会被盖住点不到 */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable style={styles.backBtn} onPress={onBack} accessibilityLabel="返回">
           <Ionicons name="chevron-back" size={18} color={colors.accent} />
           <Text style={styles.backText}>返回</Text>
@@ -135,7 +138,7 @@ export default function RadiusLabScreen({
       {wide ? (
         <View style={styles.stageWide}>
           <View style={styles.canvasCol}>
-            <View style={[styles.canvasWrap, { height: canvasH }]}>
+            <View style={styles.canvasWrap}>
               <Chem3DView ref={chemRef} scene={scene} onEvent={handleEvent} />
               <View style={styles.canvasHint} pointerEvents="none">
                 <Text style={styles.canvasHintText}>
@@ -165,7 +168,7 @@ export default function RadiusLabScreen({
       ) : (
         <View style={styles.stageNarrow}>
           <View style={styles.canvasColNarrow}>
-            <View style={[styles.canvasWrap, { height: canvasH }]}>
+            <View style={[styles.canvasWrapFixed, { height: canvasH }]}>
               <Chem3DView ref={chemRef} scene={scene} onEvent={handleEvent} />
               <View style={styles.canvasHint} pointerEvents="none">
                 <Text style={styles.canvasHintText}>
@@ -617,8 +620,18 @@ const styles = StyleSheet.create({
   critToggleText: { fontSize: 11.5, fontWeight: '600', color: colors.faint },
   critToggleTextOn: { color: colors.accent },
 
+  // 宽布局：父容器有明确高度，画板用 flex: 1 撑满剩余空间
   canvasWrap: {
     flex: 1,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+    backgroundColor: '#EAF1FB',
+  },
+  // 窄布局（移动端）：父容器高度是 auto，这里绝不能写 flex: 1 ——
+  // flexBasis 为 0 会让它对父容器高度的贡献变成 0，3D 画布直接“塌陷”成一条看不见的缝，
+  // 表现为手机上完全不显示 3D 图。改成显式高度即可。
+  canvasWrapFixed: {
+    alignSelf: 'stretch',
     borderRadius: radii.card,
     overflow: 'hidden',
     backgroundColor: '#EAF1FB',

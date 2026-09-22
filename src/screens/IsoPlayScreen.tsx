@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, shadow } from '../theme';
 import type { IsoProblem } from '../iso/problems';
@@ -55,6 +56,7 @@ export default function IsoPlayScreen({
   const [showAll, setShowAll] = useState(false);
   const [toast, setToast] = useState<string>('');
   const [total, setTotal] = useState<number | null>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     setBuilder(freshBuilder());
@@ -110,7 +112,8 @@ export default function IsoPlayScreen({
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
+      {/* 全屏子页面：给状态栏（时间/信号）让出安全区，否则返回按钮会被盖住点不到 */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text onPress={onBack} style={styles.back}>
           <Ionicons name="chevron-back" size={18} color={colors.accent} /> 返回
         </Text>

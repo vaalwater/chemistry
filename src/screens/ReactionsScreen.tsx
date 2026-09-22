@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { content } from '../data';
 import { colors } from '../theme';
@@ -41,6 +42,7 @@ export default function ReactionsScreen({
   const [a, setA] = useState('');
   const [b, setB] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const insets = useSafeAreaInsets();
 
   const launch = (drama: ReactionDrama) => {
     setMsg(null);
@@ -76,7 +78,8 @@ export default function ReactionsScreen({
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.hero}>
+          {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}
+          <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>
             <Text style={styles.title}>反应 · 电子级演示</Text>
             <Text style={styles.subtitle}>
               输入分子式 → 自动推导并配平 → 3D 分步观察「断键 → 电子得失/转移 → 重新成键」

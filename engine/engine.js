@@ -227,6 +227,8 @@
   var tapInfo = { x: 0, y: 0, t: 0, moved: 0 };
   var pinchDist = 0;
   var mouseX = 0, mouseY = 0;
+  // 用户是否手动缩放过画布：没缩放过才允许在画幅变化时自动重新取景
+  var userZoomed = false;
 
   function applyCamera() {
     var cp = new THREE.Vector3();
@@ -299,6 +301,7 @@
     el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
     el.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'touch') return; // 手指触摸交给下面的 touch 逻辑处理
       el.setPointerCapture && el.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1) {
@@ -339,16 +342,20 @@
           camState.radius = clamp(camState.radius * (pinchDist / d), 0.5, 400);
           clampCam();
           lastInteract = performance.now();
+          userZoomed = true;
         }
         pinchDist = d;
       }
     }
 
     el.addEventListener('pointermove', function (e) {
+      if (e.pointerType === 'touch') return;
       mouseX = e.clientX; mouseY = e.clientY;
       if (pointers.size === 0) { hoverPick(e); return; }
       move(e);
     });
+
+    setupTouch(el);
 
     function up(e) {
       if (!pointers.has(e.pointerId)) return;
@@ -374,16 +381,114 @@
       camState.radius *= (1 + Math.sign(e.deltaY) * 0.09);
       clampCam();
       lastInteract = performance.now();
+      userZoomed = true;
     }, { passive: false });
 
     window.addEventListener('resize', onResize);
   }
 
+  /**
+   * 触摸手势：一指旋转、双指捏合缩放画布。
+   * 之前只用 pointer 事件，iOS 的 WKWebView 里多指 pointer 事件不齐套，
+   * 加上它会把双指当成“页面缩放”，所以这里用 touch 事件单独实现一遍。
+   */
+  function setupTouch(el) {
+    var touches = new Map(); // id -> {x, y}
+
+    function stoppable(e) {
+      if (e.cancelable) e.preventDefault();
+    }
+
+    el.addEventListener('touchstart', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var t = e.changedTouches[i];
+        touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+      }
+      if (touches.size === 1) {
+        var only = Array.from(touches.values())[0];
+        tapInfo = { x: only.x, y: only.y, t: performance.now(), moved: 0 };
+        dragActive = false;
+        pinchDist = 0;
+      } else if (touches.size >= 2) {
+        var p = Array.from(touches.values());
+        pinchDist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+        dragActive = false;
+        tapInfo.moved = 999; // 双指捏合不算“点一下”，抬手时不要触发拾取
+      }
+      stoppable(e);
+    }, { passive: false });
+
+    el.addEventListener('touchmove', function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        var tn = e.changedTouches[i];
+        var prev = touches.get(tn.identifier);
+        if (!prev) continue;
+        var dx = tn.clientX - prev.x;
+        var dy = tn.clientY - prev.y;
+        prev.x = tn.clientX; prev.y = tn.clientY;
+
+        if (touches.size === 1) {
+          tapInfo.moved += Math.abs(dx) + Math.abs(dy);
+          if (tapInfo.moved > 6) dragActive = true;
+          if (dragActive) {
+            camState.az -= dx * 0.0065;
+            camState.pl += dy * 0.0065;
+            lastInteract = performance.now();
+            autoRotate = false;
+            clampCam();
+            renderer.domElement.classList.add('dragging');
+          }
+        }
+      }
+      if (touches.size >= 2) {
+        var p = Array.from(touches.values());
+        var d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+        if (pinchDist > 0 && d > 0) {
+          camState.radius = clamp(camState.radius * (pinchDist / d), 0.5, 400);
+          clampCam();
+          lastInteract = performance.now();
+          userZoomed = true;
+        }
+        pinchDist = d;
+      }
+      stoppable(e);
+    }, { passive: false });
+
+    function end(e) {
+      for (var i = 0; i < e.changedTouches.length; i++) touches.delete(e.changedTouches[i].identifier);
+      if (touches.size === 0) {
+        var wasTap = !dragActive && tapInfo.moved < 10 && (performance.now() - tapInfo.t) < 700;
+        if (wasTap) tapPick(tapInfo.x, tapInfo.y);
+        dragActive = false;
+        renderer.domElement.classList.remove('dragging');
+        pinchDist = 0;
+        if (autoRotateResume()) showHint('轻点原子可查看其电子结构', 1800);
+      }
+      stoppable(e);
+    }
+    el.addEventListener('touchend', end, { passive: false });
+    el.addEventListener('touchcancel', end, { passive: false });
+
+    // 拦住 WKWebView / Safari 自己的“双指页面缩放”，否则双指会被系统吃掉
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (n) {
+      document.addEventListener(n, function (e) { e.preventDefault(); }, { passive: false });
+    });
+  }
+
   function onResize() {
-    W = window.innerWidth; H = window.innerHeight;
+    var prevAspect = camera.aspect;
+    W = Math.max(1, window.innerWidth);
+    H = Math.max(1, window.innerHeight);
     camera.aspect = W / H;
     camera.updateProjectionMatrix();
     renderer.setSize(W, H);
+    // 画布尺寸 / 转屏变化：用户没手动缩放过时按新画幅重新取景，避免内容被切边
+    // （含首次拿到真实尺寸的情况 —— 之前 W/H 可能是 0，aspect 是 NaN）
+    var changed = !isFinite(prevAspect) || Math.abs(prevAspect - camera.aspect) > 0.02;
+    if (view && view.fitR && changed && performance.now() - lastInteract > 1000 && !userZoomed) {
+      camState.radius = fitDistance(view.fitR);
+      clampCam();
+    }
   }
 
   function autoRotateResume() {
@@ -510,6 +615,20 @@
     });
   }
 
+  /**
+   * 让半径为 r 的包围球完整进画面所需的相机距离。
+   * 关键点：fov 是纵向视角，横向可视范围 = 纵向 × aspect。
+   * 手机竖屏（aspect < 1）时横向比纵向窄得多，只按纵向算的话
+   * 横向摆着的分子（比如 N₂）两头就会顶出屏幕 —— 必须取两者里较小的那个方向。
+   */
+  function fitDistance(r, margin) {
+    var m = margin === undefined ? 1.15 : margin;
+    var vHalf = (camera.fov * Math.PI) / 360;
+    var hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+    var minHalf = Math.min(vHalf, hHalf);
+    return (r * m) / Math.sin(minHalf);
+  }
+
   function fitView(root, minR) {
     var box = new THREE.Box3().setFromObject(root);
     var sphere = box.getBoundingSphere(new THREE.Sphere());
@@ -519,10 +638,12 @@
     camTargetGoal.copy(c);
     view.homeTarget = c.clone();
     view.fitR = r;
-    camState.radius = r * 2.6;
+    view.minR = minR || 1.2;
+    camState.radius = fitDistance(r);
     camState.pl = clamp(camState.pl, 0.3, 0.7);
     camState.az = camState.az || 0.7;
     autoRotate = true;
+    userZoomed = false;
     clampCam();
   }
 
@@ -663,21 +784,23 @@
     mode = mode === 'top' ? 'top' : (mode === 'flat' ? 'flat' : 'solid');
     view.camMode = mode;
     if (!view.fitR) return;
+    // 基准距离随画幅自适应（竖屏会自动往后退一点，保证左右都装得下）
+    var base = fitDistance(view.fitR);
     if (mode === 'top') {
       camState.az = 0;
       camState.pl = 1.45; // 接近正上方的俯视图
-      camState.radius = Math.max(view.fitR * 2.15, 3);
+      camState.radius = Math.max(base * 0.8, 3);
       autoRotate = false;
     } else if (mode === 'flat') {
       // 平视视角：相机环绕到反应面侧向（az=90°），反应箭头在画面中水平向右
       camState.az = Math.PI / 2;
       camState.pl = 0.045;
-      camState.radius = Math.max(view.fitR * 3.0, 3.2);
+      camState.radius = Math.max(base * 1.11, 3.2);
       autoRotate = false;
     } else {
       camState.az = 0.7;
       camState.pl = 0.6;
-      camState.radius = view.fitR * 2.7;
+      camState.radius = base;
       autoRotate = view.autorotate !== false;
     }
     clampCam();
@@ -2131,6 +2254,7 @@
       cmdReaction(msg.action, msg.value);
     } else if (cmd === 'view') {
       if (msg.action === 'reset' && view) {
+        userZoomed = false; // 复位后重新允许自动取景
         applyCamMode(view.camMode || (view.kind === 'atom' ? 'top' : 'solid'));
         // 同时把观察中心归位（方向键平移 / 分步自动居中后可用它复位）
         if (view.homeTarget) focusTarget(view.homeTarget.x, view.homeTarget.y, view.homeTarget.z);

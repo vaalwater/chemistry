@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme';
 import type { MoleculeData } from '../types';
 import MoleculesScreen from './MoleculesScreen';
@@ -21,9 +22,10 @@ export default function BrowseScreen({
   onOpen: (kind: 'molecule' | 'atom', id: string, mol?: MoleculeData) => void;
 }) {
   const current = (['molecules', 'atoms'].includes(section) ? section : 'molecules') as SectionKey;
+  const insets = useSafeAreaInsets();
   return (
     <View style={styles.root}>
-      <View style={styles.chipsWrap}>
+      <View style={[styles.chipsWrap, { paddingTop: 10 + insets.top }]}>
         {SECTIONS.map((s) => {
           const active = current === s.key;
           return (
