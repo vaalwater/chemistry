@@ -18,6 +18,7 @@ import {
   SHELL_LABELS,
   shellsForIon,
 } from '../data';
+import { LATTICE_LINKS } from '../radius/radiusRule';
 import type { ElementData, EngineEvent, MoleculeData, SceneReq } from '../types';
 
 interface Entry {
@@ -28,6 +29,8 @@ interface Entry {
 interface Props {
   initial: SceneReq;
   onClose: () => void;
+  /** 离子晶体类分子（NaCl 等）跳转到“半径比·配位数实验” */
+  onOpenRadiusLab?: (molId: string) => void;
 }
 
 /** 反应展示元数据：内置 ReactionData 与宿主下发剧幕 Drama 共用视图（都带 step title/desc） */
@@ -41,7 +44,7 @@ export interface ReactionView {
   steps: { title: string; desc: string }[];
 }
 
-export default function SceneScreen({ initial, onClose }: Props) {
+export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props) {
   const insets = useSafeAreaInsets();
   const [stack, setStack] = useState<Entry[]>([{ scene: initial }]);
   const [rxn, setRxn] = useState<{ step: number; steps: number; playing: boolean } | null>(null);
@@ -320,6 +323,7 @@ export default function SceneScreen({ initial, onClose }: Props) {
           {scene.kind === 'molecule' && mol ? (
             <MoleculePanel
               mol={mol}
+              onRadiusLab={onOpenRadiusLab ? () => onOpenRadiusLab(mol.id) : undefined}
               onAtom={(sym) => {
                 const idx = mol.atoms?.findIndex((a) => a.el === sym) ?? -1;
                 push(
@@ -372,13 +376,23 @@ export default function SceneScreen({ initial, onClose }: Props) {
 }
 
 /* ---------- 分子信息面板 ---------- */
-function MoleculePanel({ mol, onAtom }: { mol: MoleculeData; onAtom: (s: string) => void }) {
+function MoleculePanel({
+  mol,
+  onAtom,
+  onRadiusLab,
+}: {
+  mol: MoleculeData;
+  onAtom: (s: string) => void;
+  onRadiusLab?: () => void;
+}) {
   const [folded, setFolded] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const els: string[] = [];
   mol.atoms?.forEach((a) => {
     if (!els.includes(a.el)) els.push(a.el);
   });
+  /** 离子晶体：可以一路跳到半径比实验去看它的配位数 */
+  const link = LATTICE_LINKS[mol.id];
   const acid = mol.acidity;
   const tone = acid ? acidityTone(acid.label) : null;
   const foldTitle = `${mol.name} ${mol.formulaDisplay ?? mol.formula}`;
@@ -432,6 +446,21 @@ function MoleculePanel({ mol, onAtom }: { mol: MoleculeData; onAtom: (s: string)
             );
           })}
         </ScrollView>
+      ) : null}
+
+      {link && onRadiusLab ? (
+        <Pressable style={styles.labEntry} onPress={onRadiusLab} accessibilityRole="button">
+          <View style={styles.labEntryIcon}>
+            <Ionicons name="resize-outline" size={17} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.labEntryTitle}>打开「半径比 · 配位数实验」</Text>
+            <Text style={styles.labEntryMeta}>
+              {link.formula} 的 r₊/r₋ ≈ {link.ratio.toFixed(2)}，动手拖滑块看它的配位数为什么是 6
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.faint} />
+        </Pressable>
       ) : null}
 
       <Pressable onPress={() => setExpanded((v) => !v)}>
@@ -1047,6 +1076,25 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontWeight: '600',
   },
+  labEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 10,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 13,
+    padding: 10,
+  },
+  labEntryIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labEntryTitle: { fontSize: 13, fontWeight: '800', color: colors.ink },
+  labEntryMeta: { fontSize: 11, color: colors.sub, marginTop: 2, lineHeight: 16 },
   desc: {
     fontSize: 13,
     lineHeight: 20,

@@ -12,6 +12,9 @@ interface Props {
 
 const SAMPLES = ['H2O', 'CO2', 'CH4', 'CH3COOH', 'C2H4', 'C6H12O6', 'NH3'];
 
+/** 卡片内分子结构图的最大高度：避免 Ca/Zn 等重原子把图撑出卡片 */
+const THUMB_MAX_HEIGHT = 88;
+
 export function AcidBadge({ acidity, small = false }: { acidity: AcidInfo; small?: boolean }) {
   const tone = acidityTone(acidity.label);
   return (
@@ -121,7 +124,7 @@ export default function MoleculesScreen({ onOpen }: Props) {
                     style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}
                     onPress={() => onOpen('molecule', m.id, inContent ? undefined : m)}
                   >
-                    <MoleculeThumb mol={m} />
+                    <MoleculeThumb mol={m} maxHeight={THUMB_MAX_HEIGHT} />
                     <Text style={styles.formula}>{m.formulaDisplay ?? m.formula}</Text>
                     <Text style={styles.name} numberOfLines={1}>
                       {m.name}

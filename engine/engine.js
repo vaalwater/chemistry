@@ -485,6 +485,7 @@
     clearSelection();
     hideTooltip();
     autoRotate = false;
+    radiusState = null; // 半径比实验室的场景状态随视图一起清空
     if (view && view.cleanups) {
       view.cleanups.forEach(function (f) { try { f(); } catch (e) {} });
     }
@@ -1654,10 +1655,33 @@
     var adt = dt * 0.5 * reactionSpeed;
     var k = 1 - Math.exp(-adt * 1.7);
     var nearSettled = true; // 视觉上已到位（约 95%），用于触发“分步自动居中”
-    ['molOp', 'atomOp', 'fragOp', 'move', 'prodOp', 'prodScale', 'pairsOp', 'spread'].forEach(function (key) {
-      cur[key] += (t[key] - cur[key]) * k;
-      if (Math.abs(t[key] - cur[key]) < 0.003) cur[key] = t[key];
-      else if (Math.abs(t[key] - cur[key]) > 0.05) nearSettled = false;
+
+    // 最后一步（products）：离子先“走”到产物位点完成组合，产物分子在离子就位后才成形显现，
+    // 避免“离子还在移动时化合物已经提前淡入”。
+    var forming = st.mode === 'products';
+    var kMove = 1 - Math.exp(-adt * (forming ? 3.2 : 1.7));
+    cur.move += (t.move - cur.move) * kMove;
+    if (Math.abs(t.move - cur.move) < 0.004) cur.move = t.move;
+    if (Math.abs(t.move - cur.move) > 0.05) nearSettled = false;
+    var arrived = !forming || cur.move >= t.move - 0.015; // 离子已抵达产物位点
+
+    var kForm = forming ? 1 - Math.exp(-adt * 3.0) : k; // 成形（产物显现 / 离子隐入）
+    var targets = {
+      molOp: t.molOp,
+      atomOp: t.atomOp,
+      // 组合完成：自由原子/离子淡出，把画面交给产物分子（未配对原子仍走 atomOp）
+      fragOp: arrived && forming ? 0 : t.fragOp,
+      prodOp: arrived ? t.prodOp : 0, // 就位前产物分子完全不显示
+      prodScale: t.prodScale,
+      pairsOp: arrived ? t.pairsOp : 0, // 共用电子对随产物一起出现
+      spread: t.spread
+    };
+    ['molOp', 'atomOp', 'fragOp', 'prodOp', 'prodScale', 'pairsOp', 'spread'].forEach(function (key) {
+      var tv = targets[key];
+      var kk = (key === 'prodOp' || key === 'pairsOp' || key === 'fragOp') ? kForm : k;
+      cur[key] += (tv - cur[key]) * kk;
+      if (Math.abs(tv - cur[key]) < 0.003) cur[key] = tv;
+      else if (Math.abs(tv - cur[key]) > 0.05) nearSettled = false;
     });
     // 反应物分子层
     st.lhsUnits.forEach(function (u) {
@@ -1777,6 +1801,284 @@
     notify({ ev: 'reaction', step: reactionState.step, steps: steps.length, playing: reactionState.playing });
   }
 
+  /* ================= 半径比实验室（配位数 4 / 6 / 8） =================
+   * 以负离子半径 r₋ 为 1 个长度单位，正离子半径就是半径比 k = r₊/r₋。
+   * 摆放规则：负离子先“紧密堆积”（彼此相切），正离子长大到塞不进空隙时被迫把负离子撑开；
+   * 一旦撑到临界半径比，同样的排列下正负离子再也兼顾不了，晶体只能重排成更高配位数的结构。
+   * 因此：配位数不是连续变化的，而是在 0.414 / 0.732 处“跳变”。
+   */
+  var radiusState = null;
+  var RAD_TRANS = 1.0;   // 配位数跳变总时长（秒）
+  var RAD_STRAIN = 0.42; // 其中先维持旧结构示警的比例
+  // 负离子紧密堆积时，空隙中心到负离子中心的距离（√(3/2)、√2、√3 对应的紧密堆积几何）
+  var RAD_G = { 4: 1.2247, 6: 1.4142, 8: 1.7321 };
+  // 该配位结构能容忍的最大半径比（超过就必须重排）
+  var RAD_UPPER = { 4: 0.4142, 6: 0.732, 8: 1.0 };
+  // 到达上临界时，负离子被撑开的程度（用于把“堆积受力”映射成颜色）
+  var RAD_STRETCH = { 4: 0.155, 6: 0.225, 8: 0.155 };
+
+  function radVec(a) { return new THREE.Vector3(a[0], a[1], a[2]).normalize(); }
+  // 8 个立方体顶角方向：前 4 个正好构成一个正四面体（配位数 4）
+  var RAD_SIGNS = [
+    [1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1],
+    [-1, -1, -1], [-1, 1, 1], [1, -1, 1], [1, 1, -1]
+  ];
+  var RAD_DIRS = RAD_SIGNS.map(radVec);
+  var RAD_OCT = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(radVec);
+  var RAD_EDGES = {
+    4: [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]],
+    6: [[0, 2], [0, 3], [0, 4], [0, 5], [1, 2], [1, 3], [1, 4], [1, 5], [2, 4], [2, 5], [3, 4], [3, 5]],
+    8: (function () {
+      var out = [];
+      for (var i = 0; i < RAD_SIGNS.length; i++) {
+        for (var j = i + 1; j < RAD_SIGNS.length; j++) {
+          var s = RAD_SIGNS[i], t = RAD_SIGNS[j];
+          var diff = (s[0] !== t[0] ? 1 : 0) + (s[1] !== t[1] ? 1 : 0) + (s[2] !== t[2] ? 1 : 0);
+          if (diff === 1) out.push([i, j]);
+        }
+      }
+      return out;
+    })()
+  };
+
+  function radCnFor(k) {
+    if (k < RAD_UPPER[4]) return 4;
+    if (k < RAD_UPPER[6]) return 6;
+    return 8;
+  }
+  function radVoidName(cn) { return cn === 4 ? '四面体空隙' : cn === 6 ? '八面体空隙' : '立方体空隙'; }
+  function radTypeName(cn) {
+    return cn === 4 ? 'ZnS 型（闪锌矿）' : cn === 6 ? 'NaCl 型（岩盐）' : 'CsCl 型（氯化铯）';
+  }
+
+  /** 某个配位结构在当前半径比下的摆放：8 个槽位的方向 / 距离 / 是否登场 */
+  function radLayout(cn, k) {
+    // 负离子想保持相切（距离 RAD_G[cn]），正离子又必须碰到它（距离 1+k）：取较大者
+    var dist = Math.max(RAD_G[cn], 1 + k);
+    var out = [];
+    for (var i = 0; i < 8; i++) {
+      var op = cn === 4 ? (i < 4 ? 1 : 0) : cn === 6 ? (i < 6 ? 1 : 0) : 1;
+      var dir = (cn === 6 && i < 6) ? RAD_OCT[i] : RAD_DIRS[i];
+      out.push({ dir: dir, dist: dist, op: op });
+    }
+    return out;
+  }
+
+  var ROD_UP = new THREE.Vector3(0, 1, 0);
+  function rodUpdate(mesh, from, to, thick) {
+    var dir = new THREE.Vector3().subVectors(to, from);
+    var len = dir.length();
+    if (len < 1e-4) { mesh.visible = false; return; }
+    mesh.visible = true;
+    mesh.position.copy(from).addScaledVector(dir, 0.5);
+    mesh.quaternion.setFromUnitVectors(ROD_UP, dir.normalize());
+    mesh.scale.set(thick, len, thick);
+  }
+  function makeRod(geo, hex, opacity) {
+    return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: opacity }));
+  }
+
+  function showRadiusScene(ratio0) {
+    setStageVisible(true);
+    var k0 = (typeof ratio0 === 'number' && isFinite(ratio0)) ? clamp(ratio0, 0.2, 1) : 0.564;
+    var cn0 = radCnFor(k0);
+    var root = new THREE.Group();
+    var anionGeo = new THREE.SphereGeometry(1, 26, 20);
+    var catGeo = new THREE.SphereGeometry(1, 26, 20);
+    var rodGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
+
+    var cation = new THREE.Mesh(catGeo, stdMat(0xF2A25C, { roughness: 0.42 })); // 橙 = 正离子 r₊
+    cation.scale.setScalar(k0);
+    root.add(cation);
+
+    var i, anions = [], contacts = [], gapRods = [], links = [];
+    for (i = 0; i < 8; i++) {
+      var am = new THREE.Mesh(anionGeo, stdMat(0x5FBFA8, { roughness: 0.45 })); // 绿 = 负离子 r₋
+      am.visible = false;
+      root.add(am);
+      anions.push(am);
+      var cm = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), new THREE.MeshBasicMaterial({ color: 0x1fa97a, transparent: true, opacity: 0.95 }));
+      cm.visible = false;
+      root.add(cm);
+      contacts.push(cm);
+      var gr = makeRod(rodGeo, 0xe5524a, 0.8);
+      gr.visible = false;
+      root.add(gr);
+      gapRods.push(gr);
+    }
+    // 负离子之间的“堆积接触”：每条棱用两段短线表示，接触时两段刚好接上
+    for (i = 0; i < 24; i++) {
+      var lr = makeRod(rodGeo, 0xb9c6d8, 0.8);
+      lr.visible = false;
+      root.add(lr);
+      links.push(lr);
+    }
+
+    var labAnion = textSprite('r₋', { size: 30, worldH: 0.34, color: '#2f7f6a', bold: true });
+    root.add(labAnion);
+    var labCation = textSprite('r₊', { size: 30, worldH: 0.34, color: '#a55b1e', bold: true });
+    root.add(labCation);
+
+    sceneRoot.add(root);
+    radiusState = {
+      k: k0, kTarget: k0, cn: cn0, trans: null, blink: 0,
+      slots: radLayout(cn0, k0).map(function (s) { return { dir: s.dir.clone(), dist: s.dist, op: s.op }; }),
+      gaps: [0, 0, 0, 0, 0, 0, 0, 0], rattle: 0,
+      cation: cation, anions: anions, contacts: contacts, gapRods: gapRods, links: links,
+      labAnion: labAnion, labCation: labCation
+    };
+    view = {
+      kind: 'radius', id: 'radius', root: root, atomMeshes: [], autorotate: true, update: radUpdate
+    };
+    fitView(root, 3.3);
+    applyCamMode('solid');
+    showHint('拖动页面上的滑块改变半径比 · 手指可旋转缩放', 2800);
+  }
+
+  /** 每帧更新：负离子不断向“当前该有的排布”逼近，跨临界值时先示警、再花约 1 秒滑到新结构 */
+  function radUpdate(dt) {
+    var st = radiusState;
+    if (!st || !view || view.kind !== 'radius') return;
+
+    st.k += (st.kTarget - st.k) * (1 - Math.exp(-dt * 9));
+    var k = st.k;
+    var targetCN = radCnFor(k);
+
+    // 跳变时间线：先在旧结构上把“为什么撑不住”演出来，再滑到新排布
+    if (st.trans) {
+      st.trans.t += dt / RAD_TRANS;
+      if (targetCN === st.trans.fromCN && st.trans.t < RAD_STRAIN) {
+        st.trans = null; // 还没开始重排就被拖回去了，取消这次跳变
+      } else if (st.trans.t >= RAD_STRAIN && st.cn !== st.trans.toCN) {
+        st.cn = st.trans.toCN;
+      }
+      if (st.trans && st.trans.t >= 1) { st.cn = st.trans.toCN; st.trans = null; }
+    }
+    if (!st.trans && targetCN !== st.cn) st.trans = { t: 0, fromCN: st.cn, toCN: targetCN };
+
+    var layoutCN = (st.trans && st.trans.t < RAD_STRAIN) ? st.trans.fromCN : st.cn;
+    var tgt = radLayout(layoutCN, k);
+    var rate = st.trans ? (st.trans.t < RAD_STRAIN ? 9 : 4.2) : 7;
+    var f = 1 - Math.exp(-dt * rate);
+
+    // 正离子太大 → 负离子堆积被破坏的强度（用于把棱染红并断裂）
+    var fail = 0;
+    if (st.trans && st.trans.toCN > st.trans.fromCN) {
+      fail = st.trans.t < RAD_STRAIN ? 1 : clamp(1 - (st.trans.t - RAD_STRAIN) / 0.3, 0, 1);
+    }
+    st.blink += dt;
+    var blink = 0.5 + 0.5 * Math.sin(st.blink * 11);
+
+    var cGrey = new THREE.Color(0xb9c6d8), cWarn = new THREE.Color(0xe2822f), cBad = new THREE.Color(0xe5524a);
+    var _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3(), _dir = new THREE.Vector3();
+    var maxDist = 0.001;
+    var i;
+    for (i = 0; i < 8; i++) {
+      var t = tgt[i], s = st.slots[i];
+      s.dir.lerp(t.dir, f);
+      if (s.dir.lengthSq() < 1e-8) s.dir.copy(t.dir); else s.dir.normalize();
+      s.dist += (t.dist - s.dist) * f;
+      s.op += (t.op - s.op) * f;
+      if (s.dist > maxDist) maxDist = s.dist;
+
+      var a = st.anions[i];
+      a.visible = s.op > 0.02;
+      a.position.copy(s.dir).multiplyScalar(s.dist);
+      if (a.visible) {
+        a.scale.setScalar(0.85 + 0.15 * s.op);
+      }
+
+      // 接触检测：正离子够不够大，能不能同时碰到周围所有负离子
+      var gap = s.dist - 1 - k;          // > 0 说明还够不着（太小），≈ 0 表示刚好接触
+      st.gaps[i] = gap;
+      var touching = Math.abs(gap) <= 0.025;
+      var showDot = s.op > 0.35;
+      var cm = st.contacts[i];
+      cm.visible = showDot;
+      if (showDot) {
+        var md = touching ? Math.max(k, 0.06) : Math.max((k + s.dist - 1) / 2, 0.06);
+        cm.position.copy(s.dir).multiplyScalar(md);
+        cm.material.color.setHex(touching ? 0x1fa97a : 0xe5524a);
+        cm.material.opacity = touching ? 0.95 : 0.35 + 0.6 * blink;
+        cm.scale.setScalar(touching ? 1 : 1.2);
+      }
+      var gr = st.gapRods[i];
+      gr.visible = showDot && gap > 0.025;
+      if (gr.visible) {
+        _p0.copy(s.dir).multiplyScalar(Math.max(k, 0.02));
+        _p1.copy(s.dir).multiplyScalar(Math.max(s.dist - 1, 0.03));
+        rodUpdate(gr, _p0, _p1, 0.05);
+        gr.material.opacity = 0.3 + 0.5 * blink;
+      }
+    }
+
+    // 正离子明显装不满空隙时，把负离子调成半透明，能直接看见里面“空荡荡”的正离子
+    var maxGap = 0;
+    for (i = 0; i < 8; i++) {
+      if (st.slots[i].op > 0.5 && st.gaps[i] > maxGap) maxGap = st.gaps[i];
+    }
+    var hollow = clamp(maxGap / 0.14, 0, 1);
+    for (i = 0; i < 8; i++) {
+      var aa = st.anions[i];
+      if (!aa.visible) continue;
+      aa.material.opacity = (0.2 + 0.8 * st.slots[i].op) * (1 - 0.62 * hollow);
+      aa.material.depthWrite = hollow < 0.04;
+    }
+
+    // 负离子之间的堆积接触线：被撑开先变橙，撑到极限变红并断裂
+    var edges = RAD_EDGES[st.cn] || RAD_EDGES[8];
+    var maxStretch = RAD_STRETCH[st.cn] || 0.2;
+    var li = 0;
+    for (i = 0; i < edges.length; i++) {
+      var sa = st.slots[edges[i][0]], sb = st.slots[edges[i][1]];
+      var vis = sa.op > 0.5 && sb.op > 0.5;
+      var l1 = st.links[li++], l2 = st.links[li++];
+      if (!vis) { l1.visible = false; l2.visible = false; continue; }
+      _p0.copy(sa.dir).multiplyScalar(sa.dist);
+      _p1.copy(sb.dir).multiplyScalar(sb.dist);
+      var len = _p0.distanceTo(_p1);
+      // 两球表面之间被撑开的缝：0 = 刚好相切（紧密堆积），越大说明被撑得越狠
+      var press = clamp((len / 2 - 1) / maxStretch, 0, 1);
+      var pv = Math.max(press * 0.7, fail);
+      // 正离子变小、配位数下降的过程中，中间态会被算得“很撑”，但这时的原因是装不满而不是撑爆 → 不染成断裂红
+      if (st.trans && st.trans.toCN < st.trans.fromCN) pv = Math.min(pv, 0.6);
+      var col = pv < 0.5 ? cGrey.clone().lerp(cWarn, pv / 0.5) : cWarn.clone().lerp(cBad, (pv - 0.5) / 0.5);
+      // 撑到极限：两段短线各自往自己的负离子上缩，中间裂开 → 看起来就是“断裂”
+      var retract = pv > 0.8 ? 0.62 * ((pv - 0.8) / 0.2) : 0;
+      var far = len / 2 - retract * (len / 2 - 1);
+      if (far < 0.76) { l1.visible = false; l2.visible = false; continue; }
+      _dir.subVectors(_p1, _p0).normalize();
+      _t1.copy(_p0).addScaledVector(_dir, 0.72);
+      _t2.copy(_p0).addScaledVector(_dir, far);
+      rodUpdate(l1, _t1, _t2, 0.05);
+      l1.material.color = col;
+      l1.material.opacity = 0.9;
+      _t1.copy(_p1).addScaledVector(_dir, -0.72);
+      _t2.copy(_p1).addScaledVector(_dir, -far);
+      rodUpdate(l2, _t1, _t2, 0.05);
+      l2.material.color = col;
+      l2.material.opacity = 0.9;
+    }
+    for (; li < st.links.length; li++) st.links[li].visible = false;
+
+    // 够不着时让正离子在空隙里“晃动”，肉眼能看出它撑不满这个空隙
+    st.rattle += dt;
+    if (maxGap > 0.003) {
+      var amp = Math.min(maxGap * 4, 0.24);
+      st.cation.position.set(Math.sin(st.rattle * 9) * amp, Math.cos(st.rattle * 11.3) * amp * 0.7, Math.cos(st.rattle * 7.7) * amp * 0.5);
+    } else {
+      st.cation.position.set(0, 0, 0);
+    }
+
+    // 只标注 r₊ / r₋ 两个尺寸（配位数、半径比由页面上的面板显示）
+    st.cation.scale.setScalar(Math.max(k, 0.05));
+    st.labAnion.visible = st.slots[0].op > 0.5;
+    if (st.labAnion.visible) {
+      st.labAnion.position.copy(st.slots[0].dir).multiplyScalar(st.slots[0].dist + 1.05);
+    }
+    st.labCation.position.set(0, -maxDist - 0.85, 0);
+  }
+
   /* ================= 主循环 / 命令 ================= */
   var clock = new THREE.Clock();
   function loop() {
@@ -1818,7 +2120,13 @@
       if (mode === 'molecule' || mode === 'lattice') showMoleculeScene(msg.id, msg.mol || null);
       else if (mode === 'atom') showAtomScene(msg.id, { molId: msg.molId, ai: msg.ai, mol: msg.mol || null });
       else if (mode === 'reaction') showReactionScene(msg.id, msg.reaction || null);
+      else if (mode === 'radius') showRadiusScene(msg.ratio);
       notify({ ev: 'scene', mode: mode, id: msg.id });
+    } else if (cmd === 'radius') {
+      // 半径比实验室：滑块数值（0.2 ~ 1.0）
+      if (radiusState && typeof msg.value === 'number' && isFinite(msg.value)) {
+        radiusState.kTarget = clamp(msg.value, 0.2, 1);
+      }
     } else if (cmd === 'reaction') {
       cmdReaction(msg.action, msg.value);
     } else if (cmd === 'view') {

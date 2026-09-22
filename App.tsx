@@ -9,23 +9,30 @@ import BrowseScreen from './src/screens/BrowseScreen';
 import ReactionsScreen from './src/screens/ReactionsScreen';
 import AboutScreen from './src/screens/AboutScreen';
 import SceneScreen from './src/screens/SceneScreen';
+import HandsOnScreen from './src/screens/HandsOnScreen';
+import RadiusLabScreen from './src/screens/RadiusLabScreen';
+import { LATTICE_LINKS, type RadiusLabEntry } from './src/radius/radiusRule';
 
-type TabKey = 'browse' | 'reaction' | 'about';
+type TabKey = 'browse' | 'reaction' | 'handson' | 'about';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const TABS: { key: TabKey; label: string; icon: IoniconName; iconOn: IoniconName }[] = [
   { key: 'browse', label: '浏览', icon: 'grid-outline', iconOn: 'grid' },
   { key: 'reaction', label: '反应', icon: 'git-compare-outline', iconOn: 'git-compare' },
+  { key: 'handson', label: '动手', icon: 'construct-outline', iconOn: 'construct' },
   { key: 'about', label: '关于', icon: 'information-circle-outline', iconOn: 'information-circle' },
 ];
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('browse');
   const [scene, setScene] = useState<SceneReq | null>(null);
+  /** 半径比·配位数实验独立成页（token 用来让同一入口可以重复打开） */
+  const [lab, setLab] = useState<{ entry: RadiusLabEntry; token: number } | null>(null);
 
   const openScene = useCallback(
     (kind: SceneReq['kind'], id: string, mol?: MoleculeData, reaction?: ReactionDrama) => {
+      setLab(null);
       setScene({ kind, id, mol, reaction });
     },
     []
@@ -33,17 +40,44 @@ export default function App() {
 
   const closeScene = useCallback(() => setScene(null), []);
 
+  /** 从详情页的离子晶体卡片跳到配位数实验 */
+  const openRadiusLabFor = useCallback((molId: string) => {
+    const link = LATTICE_LINKS[molId];
+    setScene(null);
+    setTab('handson');
+    setLab(prev => ({
+      entry: { ratio: link ? link.ratio : 0.56, from: link ? link.formula : molId },
+      token: (prev?.token || 0) + 1,
+    }));
+  }, []);
+
+  const openRadiusLab = useCallback((entry: RadiusLabEntry) => {
+    setScene(null);
+    setTab('handson');
+    setLab(prev => ({ entry, token: (prev?.token || 0) + 1 }));
+  }, []);
+
+  const closeLab = useCallback(() => setLab(null), []);
+
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
-      {scene ? (
+      {lab ? (
+        <RadiusLabScreen key={lab.token} entry={lab.entry} onBack={closeLab} />
+      ) : scene ? (
         <SceneScreen
           key={scene.kind + ':' + scene.id}
           initial={scene}
           onClose={closeScene}
+          onOpenRadiusLab={openRadiusLabFor}
         />
       ) : (
-        <HomeTabs tab={tab} setTab={setTab} openScene={openScene} />
+        <HomeTabs
+          tab={tab}
+          setTab={setTab}
+          openScene={openScene}
+          openRadiusLab={openRadiusLab}
+        />
       )}
     </SafeAreaProvider>
   );
@@ -53,10 +87,12 @@ function HomeTabs({
   tab,
   setTab,
   openScene,
+  openRadiusLab,
 }: {
   tab: TabKey;
   setTab: (t: TabKey) => void;
   openScene: (kind: SceneReq['kind'], id: string, mol?: MoleculeData, reaction?: ReactionDrama) => void;
+  openRadiusLab: (entry: RadiusLabEntry) => void;
 }) {
   const insets = useSafeAreaInsets();
   // “浏览”tab 内部的分子/原子切换
@@ -95,6 +131,7 @@ function HomeTabs({
           />
         )}
         {tab === 'reaction' && <ReactionsScreen onPlayReaction={playReaction} />}
+        {tab === 'handson' && <HandsOnScreen onOpenRadiusLab={openRadiusLab} />}
         {tab === 'about' && <AboutScreen />}
       </View>
 

@@ -14,8 +14,13 @@ export interface Chem3DViewProps {
 }
 
 function sceneCommand(scene: SceneReq): object {
-  const mode = scene.kind === 'molecule' || scene.kind === 'atom' ? scene.kind : 'reaction';
+  const mode = scene.kind === 'molecule' || scene.kind === 'atom' || scene.kind === 'radius'
+    ? scene.kind
+    : 'reaction';
   const cmd: Record<string, unknown> = { cmd: 'scene', mode, id: scene.id };
+  if (scene.kind === 'radius') {
+    if (scene.ratio !== undefined) cmd.ratio = scene.ratio;
+  }
   if (scene.mol !== undefined) cmd.mol = scene.mol;
   if (scene.kind === 'atom') {
     if (scene.molId !== undefined) cmd.molId = scene.molId;

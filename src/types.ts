@@ -125,7 +125,7 @@ export interface Content {
   reactions: ReactionData[];
 }
 
-export type SceneKind = 'molecule' | 'atom' | 'reaction';
+export type SceneKind = 'molecule' | 'atom' | 'reaction' | 'radius';
 
 export interface SceneReq {
   kind: SceneKind;
@@ -138,6 +138,8 @@ export interface SceneReq {
   mol?: MoleculeData;
   /** 反应模式下的电子级剧幕（通用推导/预置实验进入时下发给引擎） */
   reaction?: ReactionDrama;
+  /** 半径比实验（配位数实验室）进入时的初始半径比 r₊/r₋ */
+  ratio?: number;
 }
 
 export interface EngineEvent {
