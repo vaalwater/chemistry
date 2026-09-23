@@ -54,6 +54,7 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
   const [labelsOn, setLabelsOn] = useState(true); // 分子球棍上的元素符号标注
   const [rxnSpeed, setRxnSpeed] = useState(1); // 反应动画速度倍率
   const [cardH, setCardH] = useState(0); // 底部信息卡实测高度，用于把画布浮层排在卡片之上
+  const [engineReady, setEngineReady] = useState(false); // 引擎就绪后再补发一次视图命令（未就绪前下发的会丢失）
   const chemRef = useRef<Chem3DHandle | null>(null);
 
   const cur = stack[stack.length - 1];
@@ -151,6 +152,8 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
           // 等待引擎的第一个 step 事件同步 UI
         }
       } else if (ev.ev === 'ready') {
+        // 引擎就绪前的 view / speed 命令会丢失（宿主尚未注入成功），这里标记后由 effect 补发
+        setEngineReady(true);
         setNote('场景就绪，试试拖动旋转或轻点原子');
         setTimeout(() => setNote(null), 2400);
       }
@@ -228,7 +231,7 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
   // 标注开关状态变化或切换分子场景时，同步给引擎（引擎每帧重建场景默认开启标注）
   useEffect(() => {
     send({ cmd: 'view', action: 'labels', value: labelsOn });
-  }, [labelsOn, scene.kind, scene.id, scene.mol, send]);
+  }, [labelsOn, scene.kind, scene.id, scene.mol, send, engineReady]);
 
   const setAtomViewMode = (m: 'top' | 'solid') => {
     setViewMode(m);
@@ -244,7 +247,15 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
   // 反应动画速度倍率变化时同步给引擎（非反应场景下引擎会忽略）
   useEffect(() => {
     send({ cmd: 'reaction', action: 'speed', value: rxnSpeed });
-  }, [rxnSpeed, send]);
+  }, [rxnSpeed, send, engineReady]);
+
+  // 反应场景：把画布上下被遮挡的区域（顶部导航 / 底部信息卡，单位 px）告诉引擎，
+  // 引擎据此把动画内容放进两条之间的可视带中央（手机竖屏上否则会被说明卡挡住）。
+  // cardH 首帧还是 0、且引擎未就绪前下发的命令会丢失，所以再补一次
+  useEffect(() => {
+    if (scene.kind !== 'reaction') return;
+    send({ cmd: 'view', action: 'band', top: insets.top + 64, bottom: cardH + 8 });
+  }, [scene.kind, cardH, insets.top, send, engineReady]);
 
   // 每次进入新的原子场景，默认立体视角（可手动切俯视逐层数电子），并清空上一原子的共用信息
   useEffect(() => {

@@ -49,6 +49,8 @@ export interface MoleculeData {
   formulaAscii?: string;
   /** 习惯写法 / 结构简式（如 CH₃NH₂、CH₃COOH），仅用于展示；缺省时界面回退到 formula */
   formulaDisplay?: string;
+  /** 原子很多的结构（碳纳米/晶体团簇），关掉“每个原子上方标元素符号”，避免糊住结构 */
+  noLabels?: boolean;
   view?: { rx?: number; ry?: number; rz?: number };
 }
 

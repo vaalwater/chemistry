@@ -6,9 +6,11 @@ import { colors, radii, shadow } from '../theme';
 import { PROBLEMS, type IsoProblem } from '../iso/problems';
 import IsomerListScreen from './IsomerListScreen';
 import IsoPlayScreen from './IsoPlayScreen';
+import AtomBuilderScreen from './AtomBuilderScreen';
+import AllotropeScreen from './AllotropeScreen';
 import { CRIT_HIGH, CRIT_LOW, type RadiusLabEntry } from '../radius/radiusRule';
 
-type ViewKey = 'home' | 'list' | 'play';
+type ViewKey = 'home' | 'list' | 'play' | 'atom' | 'allotrope';
 
 const ISO_CARD = {
   icon: 'git-network-outline' as const,
@@ -18,6 +20,28 @@ const ISO_CARD = {
 };
 
 const COMING = ['官能团识别闯关', '方程式配平练习'];
+
+/** 原子构造器 · 同位素 */
+const ATOM_CARD = {
+  icon: 'nuclear-outline' as const,
+  title: '原子构造器',
+  tag: '质子 / 中子 / 电子',
+  desc:
+    '拖动质子、中子、电子搭出一个原子，左上角实时生成核素符号：1 个质子是 H，加 1 个中子变 ²₁H（氘），再加 1 个中子变 ³₁H（氚）。' +
+    '只改中子数系统就会提醒“这是同位素关系”，最后还有 ¹⁴C 测年小测。',
+  bullets: ['拖拽搭原子，实时出核素符号', '同位素知识点讲解', '¹⁴C 衰变 + 测年小测'],
+};
+
+/** 同素异形体 · 结构决定性质 */
+const ALLOTROPE_CARD = {
+  icon: 'layers-outline' as const,
+  title: '同素异形体',
+  tag: '金刚石 / 石墨 / C₆₀',
+  desc:
+    '同样的碳原子，搭法不同就成了完全不同的东西：金刚石的空间网状、石墨的层状（层间虚线是范德华力）、C₆₀ 的足球分子。' +
+    '切换任一种，下方的硬度、导电性、熔点、用途会跟着结构一起变，最后还有同位素 / 同素异形体 / 同分异构体辨析和小测。',
+  bullets: ['3D 结构切换 · 性质联动', '四组易混概念对比卡片', '12 道判断题练到会区分'],
+};
 
 /** 半径比 · 配位数实验 */
 const RADIUS_CARD = {
@@ -41,6 +65,12 @@ export default function HandsOnScreen({
 
   if (view === 'play' && problem) {
     return <IsoPlayScreen problem={problem} onBack={() => setView('list')} />;
+  }
+  if (view === 'atom') {
+    return <AtomBuilderScreen onBack={() => setView('home')} />;
+  }
+  if (view === 'allotrope') {
+    return <AllotropeScreen onBack={() => setView('home')} />;
   }
   if (view === 'list') {
     return (
@@ -75,6 +105,48 @@ export default function HandsOnScreen({
           </View>
           <Text style={styles.cardDesc}>{ISO_CARD.desc}</Text>
           <Text style={styles.enter}>开始练习</Text>
+        </Pressable>
+
+        <Pressable style={styles.card} onPress={() => setView('atom')} accessibilityRole="button">
+          <View style={styles.cardHead}>
+            <View style={styles.iconWrap}>
+              <Ionicons name={ATOM_CARD.icon} size={22} color={colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{ATOM_CARD.title}</Text>
+              <Text style={styles.cardTag}>{ATOM_CARD.tag}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+          </View>
+          <Text style={styles.cardDesc}>{ATOM_CARD.desc}</Text>
+          {ATOM_CARD.bullets.map((b) => (
+            <View key={b} style={styles.bulletRow}>
+              <Ionicons name="checkmark-circle" size={13} color={colors.green} />
+              <Text style={styles.bulletText}>{b}</Text>
+            </View>
+          ))}
+          <Text style={styles.enter}>开始搭建</Text>
+        </Pressable>
+
+        <Pressable style={styles.card} onPress={() => setView('allotrope')} accessibilityRole="button">
+          <View style={styles.cardHead}>
+            <View style={styles.iconWrap}>
+              <Ionicons name={ALLOTROPE_CARD.icon} size={22} color={colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{ALLOTROPE_CARD.title}</Text>
+              <Text style={styles.cardTag}>{ALLOTROPE_CARD.tag}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+          </View>
+          <Text style={styles.cardDesc}>{ALLOTROPE_CARD.desc}</Text>
+          {ALLOTROPE_CARD.bullets.map((b) => (
+            <View key={b} style={styles.bulletRow}>
+              <Ionicons name="checkmark-circle" size={13} color={colors.green} />
+              <Text style={styles.bulletText}>{b}</Text>
+            </View>
+          ))}
+          <Text style={styles.enter}>看结构怎么决定性质</Text>
         </Pressable>
 
         <Pressable

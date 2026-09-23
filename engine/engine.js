@@ -34,6 +34,7 @@
 
   var MAT_BOND = new THREE.Color(0xcfd8e8);
   var MAT_BOND_IONIC = new THREE.Color(0x9aa8c0);
+  var MAT_BOND_VDW = new THREE.Color(0x8a63d2);
 
   function colorOf(el) { return new THREE.Color(elemMap[el] ? elemMap[el].color : '#b0b0b0'); }
 
@@ -102,13 +103,30 @@
     spr.userData.str = str;
   }
 
-  /* 沿 from->to 画键（支持 1/2/3 键与离子键样式） */
+  /* 沿 from->to 画键（支持 1/2/3 键、离子键样式，以及 vdw 虚线：层间范德华力） */
   function buildBond(mesh, from, to, order, style) {
     var group = new THREE.Group();
     var axis = new THREE.Vector3().subVectors(to, from);
     var len = axis.length();
     if (len < 1e-4) return group;
     var nAxis = axis.clone().normalize();
+    if (style === 'vdw') {
+      // 虚线：沿轴向摆一串短线，用来表示范德华力这类“弱相互作用”（不是化学键）
+      var unit = clamp(Math.round(len / 0.62), 3, 9);
+      var dashGeo = new THREE.CylinderGeometry(0.05, 0.05, (len / unit) * 0.5, 8);
+      var dashMat = new THREE.MeshStandardMaterial({
+        color: MAT_BOND_VDW, transparent: true, opacity: 0.55, roughness: 0.6
+      });
+      for (var d = 0; d < unit; d++) {
+        var c = from.clone().lerp(to, (d + 0.5) / unit);
+        var dm = new THREE.Mesh(dashGeo, dashMat);
+        dm.position.copy(c);
+        dm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), nAxis);
+        group.add(dm);
+      }
+      group.userData.vdw = true;
+      return group;
+    }
     // 求垂直于轴的参考方向
     var ref = new THREE.Vector3(0, 1, 0);
     if (Math.abs(nAxis.y) > 0.9) ref.set(1, 0, 0);
@@ -283,6 +301,8 @@
     clampTargetGoal();
     lastInteract = performance.now();
     autoRotate = false;
+    // 用户手动平移过：反应场景的自动取景（跟拍）停止接管，直到重置视角
+    if (view) view.userFramed = true;
   }
 
   // 把观察中心移到指定点（用于“重置视角”与分步自动居中）
@@ -721,8 +741,8 @@
       autorotate: true
     };
     fitView(root);
-    // 球棍模型：在原子球上方加元素符号标注（默认显示，可用 view.labels 关闭）
-    if (mol.scene !== 'lattice') {
+    // 球棍模型：在原子球上方加元素符号标注（原子多的结构用 mol.noLabels 关掉）
+    if (mol.scene !== 'lattice' && !mol.noLabels) {
       var labels = buildMoleculeLabels(mol);
       root.add(labels); // 挂在 root 下，随分子一起旋转/平移，且不参与 fitView 包围盒计算
       view.labels = labels;
@@ -1361,6 +1381,10 @@
   var reactionState = null;
   // 反应动画速度倍率（由宿主滑块下发：0.1 / 0.3 / 0.5 / 1 / 1.5）
   var reactionSpeed = 1;
+  // 画布上下被遮挡的可视带（占屏高比例，由宿主 band 命令下发，含最新一次的画布高度换算）。
+  // 存这里而不是只写在 view 上：宿主下发的 band 可能早于场景建立，
+  // 之后 showReactionScene 重建反应场景时直接沿用，避免内容又退回屏幕正中（被底部说明卡压住）
+  var rxBand = { top: 0, bottom: 0 };
 
   // atomOp：未配对到产物位点的自由原子透明度（拆解时出现、成键时淡出）
   // fragOp：已配对自由原子的透明度——成键一步保持 1，即“原原子直接移动到目标位点”，不再渐变消失
@@ -1423,28 +1447,27 @@
       return out;
     }
     function rowX(specs, side) {
-      var units = unitList(specs);
-      function estW(s) {
-        var m = s.mol || molMap[s.mol] || molMap[s.id];
-        var nA = (m && m.atoms) ? m.atoms.length : 1;
-        return 1.5 + Math.min(nA, 8) * 0.6 + (m && m.scene === 'lattice' ? 2.0 : 0);
-      }
-      var widths = units.map(function (u) { return estW(u.s); });
-      var xs = [], acc = widths[0] * 0.5;
-      units.forEach(function (u, i) {
-        if (i > 0) acc += widths[i - 1] / 2 + 1.05 + widths[i] / 2;
+      // 版面：先构建单元（拿到真实包围尺寸），再按实测大小紧凑排版。
+      // 旧的“按原子个数估算宽度”会把整行拉得非常宽，手机竖屏上相机被迫退得很远，分子只剩一小点。
+      var units = unitList(specs).map(function (o) { return { s: o.s, si: o.si, u: rxnBuildMol(o.s) }; });
+      if (!units.length) return [];
+      var GAP = 0.9;         // 单元之间的空隙（' + ' 号要占位）
+      var ARROW_EDGE = 2.15; // 行边缘到反应箭头中心的距离
+      var widths = units.map(function (o) {
+        // 半宽 = |包围球中心偏移| + 半径（不重新居中，避免与自由原子的目标坐标错位）
+        return Math.max(1.7, (Math.abs(o.u.cen ? o.u.cen.x : 0) + o.u.R) * o.u.sc * 2);
+      });
+      var xs = [], acc = widths[0] / 2;
+      units.forEach(function (o, i) {
+        if (i > 0) acc += widths[i - 1] / 2 + GAP + widths[i] / 2;
         xs.push(acc);
       });
-      // 以箭头 x=0 为轴，把整行向左侧/右侧贴齐
-      var spanR = xs[xs.length - 1] + widths[widths.length - 1] / 2;
-      xs = xs.map(function (v) { return v - spanR / 2; });
-      var maxEdge = -1e9, minEdge = 1e9;
-      xs.forEach(function (x, i) {
-        maxEdge = Math.max(maxEdge, x + widths[i] / 2);
-        minEdge = Math.min(minEdge, x - widths[i] / 2);
+      // 行先以自身中线归零，再贴到箭头左侧/右侧
+      var total = xs[xs.length - 1] + widths[widths.length - 1] / 2;
+      var center = side < 0 ? -(ARROW_EDGE + total / 2) : (ARROW_EDGE + total / 2);
+      return units.map(function (o, i) {
+        return { x: xs[i] - total / 2 + center, w: widths[i], u: o.u, si: o.si };
       });
-      var shift = side < 0 ? (-2.15 - maxEdge) : (2.15 - minEdge);
-      return xs.map(function (x, i) { return { x: x + shift, w: widths[i], u: units[i] }; });
     }
     // 统一放缩：分子/离子对/晶体，按包围球归一到视觉合适尺寸
     function unitScale(s) {
@@ -1465,11 +1488,12 @@
     }
     function rxnBuildMol(s, isProduct) {
       var u = buildUnitGroup(s);
-      // 测半高（含放缩）用于公式标签
+      // 测包围球（未缩放）：R 用于公式标签与排版，cen 记录球心偏移
       u.g.updateMatrixWorld(true);
       var box = new THREE.Box3().setFromObject(u.g);
       var sphere = box.getBoundingSphere(new THREE.Sphere());
       u.R = Math.max(sphere.radius, 0.6);
+      u.cen = sphere.center.clone();
       u.op = 0;
       return u;
     }
@@ -1499,9 +1523,9 @@
       decors.push(sp);
       if (side === 'l') plusL.push(sp); else plusR.push(sp);
     }
-    // 布局坐标实际以箭头为中心（左右留 -4.6 / +4.6 的基线，再按份宽错开）
+    // 布局坐标实际以箭头为中心（左右各留 ARROW_EDGE 的基线，再按实测宽度错开）
     LH.forEach(function (o) {
-      var u = rxnBuildMol(o.u.s, false);
+      var u = o.u; // 单元已在排版阶段构建好
       u.x = o.x; u.isLhs = true;
       u.g.position.set(u.x, 0.05, 0);
       u.g.scale.setScalar(u.sc);
@@ -1540,7 +1564,7 @@
       }
     });
     RH.forEach(function (o) {
-      var u = rxnBuildMol(o.u.s, true);
+      var u = o.u;
       u.x = o.x; u.isLhs = false;
       u.g.position.set(u.x, 0.05, 0);
       u.g.scale.setScalar(u.sc);
@@ -1690,8 +1714,7 @@
       flights: flights, breakFx: breakFx, fxEntered: false,
       spawnFx: spawnFlights, clearFx: clearFlights,
       spawnBreak: spawnBondBreak, clearBreak: clearBondBreak,
-      refreshLabels: refreshFragLabels,
-      centeredStep: -1
+      refreshLabels: refreshFragLabels
     };
     view = {
       kind: 'reaction', id: id, root: root,
@@ -1703,10 +1726,14 @@
     stepReactionTo(0);
     fitView(root);
     applyCamMode('flat');
-    // 画面整体上移：避开底部说明卡，使反应行居中于“顶部导航 ~ 说明卡上方”的可视区中央
-    // 记录上移量：分步自动居中时按同样比例把观察中心下压，保持内容落在可视区中部
-    view.liftY = Math.max(0.6, (view.fitR || 1) * 0.24);
-    root.position.y += view.liftY;
+    // 画面整体上移：避开底部说明卡，使内容居中于“顶部导航 ~ 说明卡”之间的可视带。
+    // 上移量不再用固定的世界坐标偏移，而是“可视高度的比例”，
+    // 由宿主通过 {cmd:'view', action:'band'} 告知上下遮挡区（像素），
+    // 这样分步自动取景拉近/拉远后，上移量也会跟着缩放，内容始终落在可视带中央。
+    view.bandTop = rxBand.top;
+    view.bandBottom = rxBand.bottom;
+    view.userFramed = false; // 新场景重新允许自动取景
+    frameReactionView(1);    // 第一步就按“反应物行”取好景，不再退到能装下整条反应式的远机位
     showHint('平视视角 · 反应箭头水平向右 · 轻点分子式可查看分子结构 · 拖动观察断键成键', 3000);
     notify({ ev: 'reaction', step: 0, steps: rx.steps.length, playing: false });
   }
@@ -1714,29 +1741,59 @@
   function rxnModeTarget(mode) {
     return RXN_MODES[mode] || RXN_MODES.reactants;
   }
-  // 每步动画结束后把摄像头平移到“当前主角”的包围盒中心，保证大分子/公式完整落在视野中央
-  function centerReactionOnActive() {
-    if (!reactionState || !reactionState.root || !view) return;
+  // —— 反应过程的自动取景（跟拍）——
+  // 每一步的主角不同：反应物行 / 散开的自由原子 / 生成物行。
+  // 旧版只在动画停稳后把观察中心平移过去；现在每帧持续“跟拍”：
+  // 既把主角中心移到画布可视带中央，也把机位拉近到刚好装下主角 —— 手机竖屏上才看得清分子和原子。
+  function reactionActiveBounds() {
+    if (!reactionState || !view) return null;
     var st = reactionState;
     var box = new THREE.Box3();
     var any = false;
-    var mode = st.mode;
-    if (mode === 'reactants') {
+    if (st.mode === 'reactants') {
       st.lhsUnits.forEach(function (u) { box.expandByObject(u.g); any = true; });
-    } else if (mode === 'products') {
+    } else if (st.mode === 'products') {
       st.rhsUnits.forEach(function (u) { box.expandByObject(u.g); any = true; });
     } else {
-      // 断键/电子转移：以散开的自由原子为中心
+      // 断键/电子转移：以散开的自由原子（含飞行电子）为中心
       st.frags.forEach(function (f) {
         if (!f.mesh.visible) return;
-        box.expandByObject(f.mesh);
+        box.expandByPoint(f.mesh.position);
         any = true;
       });
+      st.flights.forEach(function (fl) {
+        if (fl.mesh && fl.mesh.visible) { box.expandByPoint(fl.mesh.position); any = true; }
+      });
     }
-    if (!any) return;
-    var c = box.getCenter(new THREE.Vector3());
-    // 反应行整体上移过（view.liftY），这里同步下压观察中心，避免内容被底部说明卡挡住
-    focusTarget(c.x, c.y - (view.liftY || 0), c.z);
+    if (!any) return null;
+    var sp = box.getBoundingSphere(new THREE.Sphere());
+    return { c: sp.center, r: Math.max(sp.radius, 1.35) };
+  }
+
+  var rxFrameAcc = 1; // 初值设为 1：场景建好后的第一次调用立即取景
+  var _rxFrameC = new THREE.Vector3();
+  function frameReactionView(dt) {
+    if (!reactionState || !view || view.kind !== 'reaction') return;
+    if (view.userFramed) return; // 用户手动平移过就不再抢镜头（重置视角可恢复）
+    rxFrameAcc += dt;
+    if (rxFrameAcc < 0.12) return; // 包围盒重算限频，避免每帧全场景遍历
+    rxFrameAcc = 0;
+    var b = reactionActiveBounds();
+    if (!b) return;
+    // fitR 跟着当前一步的主角走：clampCam 的下限随之变小，才允许把机位拉近
+    view.fitR = Math.max(b.r, 1.2);
+    var need = userZoomed ? camState.radius : fitDistance(view.fitR, 1.08);
+    // 依据“上下可视带”把内容抬到带中央（bandTop/bandBottom 为占屏高的比例）：
+    // 底部说明卡比顶部导航占得更多时，内容中心应在屏带中央 = 屏幕中心上方 (bandBottom-bandTop)/2
+    var visH = 2 * need * Math.tan((camera.fov * Math.PI) / 360);
+    var lift = visH * Math.max(0, ((view.bandBottom || 0) - (view.bandTop || 0)) / 2);
+    view.homeTarget = b.c.clone();
+    _rxFrameC.set(b.c.x, b.c.y - lift, b.c.z);
+    camTargetGoal.copy(_rxFrameC);
+    if (!userZoomed) {
+      camState.radius += (need - camState.radius) * 0.18;
+      clampCam();
+    }
   }
   function stepReactionTo(index) {
     if (!reactionState) return;
@@ -1744,7 +1801,6 @@
     index = clamp(index, 0, Math.max(rx.steps.length - 1, 0));
     reactionState.step = index;
     reactionState.timer = 0;
-    reactionState.centeredStep = -1; // 允许本步动画结束后重新自动居中
     var mode = reactionModeOf(index);
     var t = rxnModeTarget(mode);
     reactionState.target = t;
@@ -1777,7 +1833,6 @@
     // 步骤间动画基准放慢为 0.5 倍，再乘以宿主滑块下发的速度倍率（过渡补间、电子飞行与断键回归共用同一时钟）
     var adt = dt * 0.5 * reactionSpeed;
     var k = 1 - Math.exp(-adt * 1.7);
-    var nearSettled = true; // 视觉上已到位（约 95%），用于触发“分步自动居中”
 
     // 最后一步（products）：离子先“走”到产物位点完成组合，产物分子在离子就位后才成形显现，
     // 避免“离子还在移动时化合物已经提前淡入”。
@@ -1785,7 +1840,6 @@
     var kMove = 1 - Math.exp(-adt * (forming ? 3.2 : 1.7));
     cur.move += (t.move - cur.move) * kMove;
     if (Math.abs(t.move - cur.move) < 0.004) cur.move = t.move;
-    if (Math.abs(t.move - cur.move) > 0.05) nearSettled = false;
     var arrived = !forming || cur.move >= t.move - 0.015; // 离子已抵达产物位点
 
     var kForm = forming ? 1 - Math.exp(-adt * 3.0) : k; // 成形（产物显现 / 离子隐入）
@@ -1804,7 +1858,6 @@
       var kk = (key === 'prodOp' || key === 'pairsOp' || key === 'fragOp') ? kForm : k;
       cur[key] += (tv - cur[key]) * kk;
       if (Math.abs(tv - cur[key]) < 0.003) cur[key] = tv;
-      else if (Math.abs(tv - cur[key]) > 0.05) nearSettled = false;
     });
     // 反应物分子层
     st.lhsUnits.forEach(function (u) {
@@ -1841,11 +1894,8 @@
         setOpacityDeep(f.lab, Math.min(op, 1));
       }
     });
-    // 每步动画到位后，把摄像头平移到当前主角（分子/原子）的包围盒中心
-    if (nearSettled && st.centeredStep !== st.step) {
-      st.centeredStep = st.step;
-      centerReactionOnActive();
-    }
+    // 全程跟拍：主角换步、原子散开/归位的过程中，画面中心与机位持续跟着调整
+    frameReactionView(dt);
     // 电子飞行小球
     for (var i = st.flights.length - 1; i >= 0; i--) {
       var fl = st.flights[i];
@@ -2255,6 +2305,7 @@
     } else if (cmd === 'view') {
       if (msg.action === 'reset' && view) {
         userZoomed = false; // 复位后重新允许自动取景
+        view.userFramed = false;
         applyCamMode(view.camMode || (view.kind === 'atom' ? 'top' : 'solid'));
         // 同时把观察中心归位（方向键平移 / 分步自动居中后可用它复位）
         if (view.homeTarget) focusTarget(view.homeTarget.x, view.homeTarget.y, view.homeTarget.z);
@@ -2272,6 +2323,19 @@
         setMoleculeLabelsVisible(!!msg.value);
       } else if (msg.action === 'clearSel') {
         clearSelection();
+      } else if (msg.action === 'band') {
+        // 宿主告知 3D 画布上下被遮挡的区域（顶部导航 / 底部说明卡，单位 px），
+        // 反应场景的自动取景会把内容放进这两条之间的可视带中央
+        // px 换算依赖当时的画布高度 H（可能此刻为 0，宿主会在 ready 后重发），H>0 时才更新
+        if (typeof msg.top === 'number' && typeof msg.bottom === 'number' && H > 0) {
+          rxBand.top = clamp(msg.top / H, 0, 1);
+          rxBand.bottom = clamp(msg.bottom / H, 0, 1);
+          if (view && view.kind === 'reaction') {
+            view.bandTop = rxBand.top;
+            view.bandBottom = rxBand.bottom;
+            rxFrameAcc = 1; // 下一帧立刻按新的可视带重新取景
+          }
+        }
       }
     } else if (cmd === 'ping') {
       notify({ ev: 'ready', ok: true });
@@ -2282,6 +2346,34 @@
     handleCommand(e.data);
   });
   window.__dispatch = handleCommand;
+  // 调试口：headless 截图 / 排查取景问题时读取当前相机与包围盒状态
+  window.__chemDebug = function () {
+    if (!view) return { view: null };
+    var b = typeof reactionActiveBounds === 'function' && reactionState ? reactionActiveBounds() : null;
+    return {
+      kind: view.kind,
+      mode: reactionState ? reactionState.mode : null,
+      fitR: view.fitR,
+      radius: camState.radius,
+      aspect: camera.aspect,
+      target: camTarget.toArray(),
+      goal: camTargetGoal.toArray(),
+      bounds: b ? { c: b.c.toArray(), r: b.r } : null,
+      userFramed: !!view.userFramed,
+      userZoomed: userZoomed
+    };
+  };
+  // 调试口：快进 N 帧动画逻辑（headless 截图时渲染极慢，用它把动画推到稳态再截图）
+  window.__chemWarm = function (frames) {
+    var step = 1 / 60;
+    for (var i = 0; i < frames; i++) {
+      if (view && view.update) view.update(step);
+      camTarget.lerp(camTargetGoal, 1 - Math.exp(-step * 9));
+    }
+    applyCamera();
+    if (renderer) renderer.render(scene, camera);
+    return { frames: frames, dbg: window.__chemDebug() };
+  };
 
   /* ---------------- 启动 ---------------- */
   function main() {
@@ -2295,12 +2387,13 @@
     setupInput();
     applyCamera();
 
-    // 心跳：告诉宿主引擎就绪
+    // 心跳：告诉宿主引擎就绪，并带上“是否已收到场景命令”状态。
+    // 宿主只在 got=false 时补发场景，避免启动阶段反复重建场景把初始动画重播好几遍。
     var attempts = 0;
     var hb = setInterval(function () {
-      notify({ ev: 'ready' });
       attempts++;
-      if (attempts > 3) clearInterval(hb);
+      notify({ ev: 'ready', got: gotCommand });
+      if (attempts > 3 || gotCommand) clearInterval(hb);
     }, 300);
 
     setTimeout(function () {
