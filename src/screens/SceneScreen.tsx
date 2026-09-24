@@ -49,7 +49,15 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
   const [stack, setStack] = useState<Entry[]>([{ scene: initial }]);
   const [rxn, setRxn] = useState<{ step: number; steps: number; playing: boolean } | null>(null);
   const [note, setNote] = useState<string | null>(null); // 底部轻提示
-  const [atomCtx, setAtomCtx] = useState<{ bondE: number; valenceE: number; molName: string | null } | null>(null);
+  const [atomCtx, setAtomCtx] = useState<AtomCtxInfo | null>(null);
+  // 原子视图里的“共价键形成”演示（成键过程动画）的播放状态
+  const [bondDemo, setBondDemo] = useState<{
+    step: number;
+    steps: number;
+    playing: boolean;
+    title: string;
+    text: string;
+  } | null>(null);
   const [viewMode, setViewMode] = useState<'top' | 'solid'>('solid');
   const [labelsOn, setLabelsOn] = useState(true); // 分子球棍上的元素符号标注
   const [rxnSpeed, setRxnSpeed] = useState(1); // 反应动画速度倍率
@@ -118,10 +126,34 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
           );
         }
       } else if (ev.ev === 'atomInfo') {
+        const bp = ev.bigPi as
+          | { label: string; centers: number; electrons: number; selfE: number }
+          | null
+          | undefined;
         setAtomCtx({
           bondE: Number(ev.bondE ?? 0),
           valenceE: Number(ev.valenceE ?? 0),
           molName: ev.molName ? String(ev.molName) : null,
+          sigmaE: Number(ev.sigmaE ?? ev.bondE ?? 0),
+          piE: Number(ev.piE ?? 0),
+          loneE: Number(ev.loneE ?? 0),
+          bigPi: bp
+            ? {
+                label: String(bp.label ?? ''),
+                centers: Number(bp.centers ?? 0),
+                electrons: Number(bp.electrons ?? 0),
+                selfE: Number(bp.selfE ?? 0),
+              }
+            : null,
+        });
+      } else if (ev.ev === 'bondDemo') {
+        // 共价键形成演示：阶段推进 / 播放状态（进入原子视图后引擎会自动演一遍）
+        setBondDemo({
+          step: Number(ev.step ?? 0),
+          steps: Number(ev.steps ?? 1),
+          playing: Boolean(ev.playing),
+          title: String(ev.title ?? ''),
+          text: String(ev.text ?? ''),
         });
       } else if (ev.ev === 'formulaTap') {
         // 反应视图里点击分子式 → 打开该分子的 3D 结构页
@@ -249,11 +281,11 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
     send({ cmd: 'reaction', action: 'speed', value: rxnSpeed });
   }, [rxnSpeed, send, engineReady]);
 
-  // 反应场景：把画布上下被遮挡的区域（顶部导航 / 底部信息卡，单位 px）告诉引擎，
-  // 引擎据此把动画内容放进两条之间的可视带中央（手机竖屏上否则会被说明卡挡住）。
+  // 反应 / 原子场景：把画布上下被遮挡的区域（顶部导航 / 底部信息卡，单位 px）告诉引擎，
+  // 引擎据此把内容放进两条之间的可视带中央（手机竖屏上否则会被说明卡挡住、原子看着偏下）。
   // cardH 首帧还是 0、且引擎未就绪前下发的命令会丢失，所以再补一次
   useEffect(() => {
-    if (scene.kind !== 'reaction') return;
+    if (scene.kind !== 'reaction' && scene.kind !== 'atom') return;
     send({ cmd: 'view', action: 'band', top: insets.top + 64, bottom: cardH + 8 });
   }, [scene.kind, cardH, insets.top, send, engineReady]);
 
@@ -261,6 +293,7 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
   useEffect(() => {
     if (scene.kind === 'atom') setViewMode('solid');
     setAtomCtx(null);
+    setBondDemo(null); // 换场景后等引擎重新上报演示状态
   }, [scene.kind, scene.id, scene.molId, scene.ai]);
 
   return (
@@ -372,6 +405,8 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
               viewMode={viewMode}
               onViewMode={setAtomViewMode}
               atomCtx={atomCtx}
+              bond={bondDemo}
+              onBond={(action) => send({ cmd: 'atomBond', action })}
             />
           ) : null}
         </View>
@@ -404,6 +439,10 @@ function MoleculePanel({
   });
   /** 离子晶体：可以一路跳到半径比实验去看它的配位数 */
   const link = LATTICE_LINKS[mol.id];
+  // 大 π 键涉及的元素（O₃ 就是 O）
+  const piSym = mol.bigpi?.atoms?.length
+    ? (mol.atoms?.[mol.bigpi.atoms[0]]?.el ?? '')
+    : '';
   const acid = mol.acidity;
   const tone = acid ? acidityTone(acid.label) : null;
   const foldTitle = `${mol.name} ${mol.formulaDisplay ?? mol.formula}`;
@@ -439,7 +478,18 @@ function MoleculePanel({
         </View>
       ) : null}
 
-      {els.length > 1 ? (
+      {mol.bigpi ? (
+        <View style={styles.piStrip}>
+          <Text style={styles.piStripTag}>大 π 键 {mol.bigpi.label || ''}（离域）</Text>
+          <Text style={styles.piStripText} numberOfLines={3}>
+            {mol.bigpi.atoms.length} 个{piSym}原子各出一个垂直于分子平面的 p 轨道，肩并肩重叠成一体：
+            {mol.bigpi.electrons} 个电子为 {mol.bigpi.atoms.length} 个{piSym}共有（紫色云），不专属某一对原子
+            → 两条 {piSym}–{piSym} 键的键长、键能完全相同，并不是一单一双。
+          </Text>
+        </View>
+      ) : null}
+
+      {els.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.elScroll}>
           {els.map((s) => {
             const el = elementBySymbol(s);
@@ -748,6 +798,20 @@ function ReactionPanel({
   );
 }
 
+/** 原子视图下钻上下文（引擎 atomInfo 上报）：最外层电子各有归属 */
+interface AtomCtxInfo {
+  bondE: number;
+  valenceE: number;
+  molName: string | null;
+  /** 用于 σ 键的电子数 */
+  sigmaE: number;
+  /** 进入离域大 π 键的电子数（0 表示无大 π 键） */
+  piE: number;
+  /** 未参与成键、以孤对电子形式留在本原子最外层的电子数 */
+  loneE: number;
+  bigPi: { label: string; centers: number; electrons: number; selfE: number } | null;
+}
+
 /* ---------- 原子面板 ---------- */
 function AtomPanel({
   element,
@@ -755,12 +819,17 @@ function AtomPanel({
   viewMode,
   onViewMode,
   atomCtx,
+  bond,
+  onBond,
 }: {
   element: ElementData;
   charge: number;
   viewMode: 'top' | 'solid';
   onViewMode: (m: 'top' | 'solid') => void;
-  atomCtx?: { bondE: number; valenceE: number; molName: string | null } | null;
+  atomCtx?: AtomCtxInfo | null;
+  /** 共价键形成演示的播放状态（无共价邻居时为 null） */
+  bond?: { step: number; steps: number; playing: boolean; title: string; text: string } | null;
+  onBond?: (action: 'play' | 'pause' | 'restart' | 'next' | 'prev') => void;
 }) {
   const [folded, setFolded] = useState(false);
   const shells = shellsForIon(element, charge);
@@ -837,12 +906,53 @@ function AtomPanel({
       <Text style={styles.desc} numberOfLines={3}>
         {element.desc.split('。')[0]}。 {summary}。
       </Text>
-      {atomCtx && atomCtx.bondE > 0 ? (
+      {atomCtx && (atomCtx.bondE > 0 || atomCtx.piE > 0) ? (
         <View style={styles.covNoteWrap}>
-          <Text style={styles.covNote} numberOfLines={2}>
-            {atomCtx.molName ? `在 ${atomCtx.molName} 中 · ` : ''}最外层 {atomCtx.valenceE} 个电子中有 {atomCtx.bondE}{' '}
-            个参与共用，橙色共用云贴在最外层壳面上（= 共用电子对），共享后满足 2/8 稳定结构
+          <Text style={styles.covNote} numberOfLines={4}>
+            {atomCtx.molName ? `在 ${atomCtx.molName} 中 · ` : ''}
+            最外层 {atomCtx.valenceE} 个电子各有归属：
+            {atomCtx.loneE > 0 ? `${Math.round(atomCtx.loneE / 2)} 对孤对电子（${atomCtx.loneE} 个，不共用）` : ''}
+            {atomCtx.sigmaE > 0
+              ? `${atomCtx.loneE > 0 ? ' + ' : ''}${atomCtx.sigmaE} 个与相邻原子配成共用电子对（σ 键）`
+              : ''}
+            {atomCtx.piE > 0
+              ? ` + ${atomCtx.piE} 个进入大 π 键 ${atomCtx.bigPi?.label || ''}（${atomCtx.bigPi?.centers ?? 0} 个原子共用 ${atomCtx.bigPi?.electrons ?? 0} 个电子，不专属某一对原子）`
+              : ''}
           </Text>
+          {atomCtx.bigPi ? (
+            <Text style={styles.covNoteSub} numberOfLines={2}>
+              大 π 键的电子为 {atomCtx.bigPi.centers} 个原子共有（离域），所以 {atomCtx.molName || '该分子'} 中两个
+              O–O 键的键长、键能完全相同，并不是一单一双。
+            </Text>
+          ) : (
+            <Text style={styles.covNoteSub} numberOfLines={2}>
+              与相邻原子各出一个电子配成共用电子对，双方共用后最外层都达到 8 电子（H 为 2）稳定结构。
+            </Text>
+          )}
+          {bond ? <Text style={styles.covNoteSub}>形成过程见上方动画演示 · 可重播 / 分步</Text> : null}
+        </View>
+      ) : null}
+      {bond ? (
+        <View style={styles.bondBox}>
+          <View style={styles.bondHead}>
+            <Text style={styles.bondTitle}>共价键形成演示</Text>
+            <Text style={styles.bondStep}>
+              {bond.step + 1} / {bond.steps}
+            </Text>
+          </View>
+          <Text style={styles.bondStage}>{bond.title}</Text>
+          <Text style={styles.bondText}>{bond.text}</Text>
+          <View style={styles.bondBtnRow}>
+            <BondBtn icon="play-skip-back" label="上一步" onPress={() => onBond?.('prev')} />
+            <BondBtn
+              icon={bond.playing ? 'pause' : 'play'}
+              label={bond.playing ? '暂停' : '播放'}
+              primary
+              onPress={() => onBond?.(bond.playing ? 'pause' : 'play')}
+            />
+            <BondBtn icon="play-skip-forward" label="下一步" onPress={() => onBond?.('next')} />
+            <BondBtn icon="refresh" label="重播" onPress={() => onBond?.('restart')} />
+          </View>
         </View>
       ) : null}
       <View style={styles.segRow}>
@@ -865,6 +975,7 @@ function AtomPanel({
       </View>
       <Text style={styles.tip}>
         红=质子 · 灰=中子 · 彩色线框+云=各能层（静态轨迹云） · 橙=共用电子对
+        {atomCtx?.bigPi ? ' · 紫=大 π 键（多原子共有）' : ''}
         {atomCtx?.molName ? ' · 轻点外圈原子核球切换查看' : ''}
       </Text>
 
@@ -910,6 +1021,30 @@ function FoldToggle({
     >
       <Ionicons name="chevron-up" size={13} color={colors.faint} />
       <Text style={styles.foldUpText}>收起介绍</Text>
+    </Pressable>
+  );
+}
+
+/** 共价键形成演示的控制按钮（播放 / 暂停 / 分步 / 重播） */
+function BondBtn({
+  icon,
+  label,
+  onPress,
+  primary,
+}: {
+  icon: 'play' | 'pause' | 'play-skip-back' | 'play-skip-forward' | 'refresh';
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      style={[styles.bondBtn, primary && styles.bondBtnOn]}
+      onPress={onPress}
+      accessibilityRole="button"
+    >
+      <Ionicons name={icon} size={13} color={primary ? '#FFFFFF' : '#c2410c'} />
+      <Text style={[styles.bondBtnText, primary && styles.bondBtnTextOn]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1478,6 +1613,62 @@ const styles = StyleSheet.create({
     color: '#a06a15',
     fontWeight: '600',
   },
+  covNoteSub: {
+    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#8a5a10',
+    fontWeight: '500',
+  },
+  piStrip: {
+    marginTop: 10,
+    borderRadius: 10,
+    backgroundColor: '#f3edff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  piStripTag: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6d28d9',
+    marginBottom: 2,
+  },
+  piStripText: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: '#5b4b8a',
+    fontWeight: '600',
+  },
+  bondBox: {
+    marginTop: 9,
+    borderRadius: 12,
+    backgroundColor: '#fff4ec',
+    borderWidth: 1,
+    borderColor: '#ffd9bd',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  bondHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  bondTitle: { fontSize: 12.5, fontWeight: '800', color: '#c2410c' },
+  bondStep: { fontSize: 11, fontWeight: '700', color: '#a06a15' },
+  bondStage: { fontSize: 13, fontWeight: '800', color: colors.ink, marginTop: 5 },
+  bondText: { fontSize: 11.5, lineHeight: 17, color: colors.inkSoft, marginTop: 3 },
+  bondBtnRow: { flexDirection: 'row', gap: 6, marginTop: 9 },
+  bondBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#ffd9bd',
+  },
+  bondBtnOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  bondBtnText: { fontSize: 10.5, fontWeight: '700', color: '#c2410c' },
+  bondBtnTextOn: { color: '#FFFFFF' },
   octetWrap: {
     flexDirection: 'row',
     alignItems: 'flex-start',

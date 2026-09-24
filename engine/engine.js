@@ -17,6 +17,7 @@
     };
   }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function round3(v) { return Math.round(v * 100) / 100; }
 
   var elemMap = {};
   var molMap = {};
@@ -611,6 +612,7 @@
     hideTooltip();
     autoRotate = false;
     radiusState = null; // 半径比实验室的场景状态随视图一起清空
+    atomBond = null;    // 共价键形成演示同样随视图清空
     if (view && view.cleanups) {
       view.cleanups.forEach(function (f) { try { f(); } catch (e) {} });
     }
@@ -667,6 +669,32 @@
     clampCam();
   }
 
+  /* 原子视图取景：按“上下遮挡带”把原子核放到可视带中央。
+   * 屏幕上下分别被顶部导航与底部信息卡占住（手机竖屏尤其明显），
+   * 只按全屏取景的话原子核落在屏幕正中，相对“可视带”就是偏下的
+   * （收起底部卡片后看着才居中）。这里和反应场景一样：
+   * 观察中心下移 lift，内容即被抬到可视带中央；纵向真装不下时才适当拉远。 */
+  function frameAtomView() {
+    if (!view || view.kind !== 'atom') return;
+    var r = view.fitR || 1.2;
+    var top = clamp(rxBand.top || 0, 0, 0.4);
+    var bottom = clamp(rxBand.bottom || 0, 0, 0.6);
+    var vHalf = (camera.fov * Math.PI) / 360;
+    var hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+    var usable = Math.max(0.35, 1 - top - bottom);
+    var needH = (r * 1.15) / Math.sin(hHalf);            // 横向不被裁（竖屏多半由它决定）
+    var needV = (r * 1.06) / (Math.tan(vHalf) * usable); // 纵向装进可视带
+    var need = Math.max(needH, needV);
+    camState.radius = need;
+    var visH = 2 * need * Math.tan(vHalf);
+    var lift = visH * Math.max(0, (bottom - top) / 2);
+    // 内容已回中到原点，观察中心下移 lift 即把原子核抬到可视带中央
+    camTarget.set(0, -lift, 0);
+    camTargetGoal.set(0, -lift, 0);
+    view.homeTarget = new THREE.Vector3(0, -lift, 0);
+    clampCam();
+  }
+
   function setViewRotation(root, rot) {
     if (!rot) return;
     root.rotation.set(rot.rx || 0, rot.ry || 0, rot.rz || 0);
@@ -720,6 +748,68 @@
     return g;
   }
 
+  // 大 π 键（离域 π 键）专用配色：紫色，与橙色共用电子对明确区分
+  var BIG_PI_NUM = 0x7c3aed;
+
+  /**
+   * 大 π 键（离域 π 键）的“公有电子云”：
+   * 若干原子各出一个 p 轨道，在分子平面上下侧向重叠成一整条云带，
+   * 电子为这些原子共有、不专属某一对原子（O₃ 就是 Π₃⁴：3 个 O 共用 4 个电子）。
+   * pts: 参与原子的坐标（按顺序串成云带）；返回云与电子小球，供分子视图 / 原子演示共用。
+   */
+  function makePiCloud(pts, opts) {
+    opts = opts || {};
+    var nE = opts.electrons || 4;
+    var h = opts.height || 0.62;
+    var mat = new THREE.MeshBasicMaterial({ color: BIG_PI_NUM, transparent: true, opacity: 0, depthWrite: false });
+    var eMat = new THREE.MeshBasicMaterial({ color: BIG_PI_NUM, transparent: true, opacity: 0 });
+    var g = new THREE.Group();
+    var eList = [];
+    if (!pts || pts.length < 2) return { group: g, mat: mat, eMat: eMat, electrons: eList, normal: new THREE.Vector3(0, 0, 1), height: h };
+    // 分子平面法向：三点定面（共线时退化，取任一垂直方向）
+    var normal = new THREE.Vector3();
+    if (pts.length >= 3) {
+      normal.crossVectors(
+        new THREE.Vector3().subVectors(pts[1], pts[0]),
+        new THREE.Vector3().subVectors(pts[2], pts[0])
+      );
+    }
+    if (normal.lengthSq() < 1e-6) {
+      var ax = new THREE.Vector3().subVectors(pts[pts.length - 1], pts[0]);
+      normal.copy(perpBasis(ax.normalize()).u);
+    }
+    normal.normalize();
+    for (var i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1];
+      var dir = new THREE.Vector3().subVectors(b, a);
+      var len = dir.length();
+      if (len < 1e-4) continue;
+      dir.normalize();
+      var zAxis = new THREE.Vector3().crossVectors(normal, dir).normalize();
+      var m4 = new THREE.Matrix4().makeBasis(normal, dir, zAxis);
+      var mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+      for (var s = -1; s <= 1; s += 2) {
+        var lobe = new THREE.Mesh(ballGeo(1), mat);
+        lobe.position.copy(mid).addScaledVector(normal, s * h);
+        lobe.quaternion.setFromRotationMatrix(m4);
+        lobe.scale.set(opts.thickness || 0.3, len * 0.5 + 0.26, opts.width || 0.5);
+        g.add(lobe);
+      }
+    }
+    // 离域电子：沿整条云带均布，上下两片交替（直观表示“电子属于整条带”）
+    var first = pts[0], last = pts[pts.length - 1];
+    for (var e = 0; e < nE; e++) {
+      var t = nE === 1 ? 0.5 : (e + 0.5) / nE;
+      var p = new THREE.Vector3().lerpVectors(first, last, t);
+      var side = (e % 2 === 0) ? 1 : -1;
+      var m2 = new THREE.Mesh(ballGeo(opts.eR || 0.16), eMat);
+      m2.position.copy(p).addScaledVector(normal, side * h);
+      g.add(m2);
+      eList.push(m2);
+    }
+    return { group: g, mat: mat, eMat: eMat, electrons: eList, normal: normal, height: h };
+  }
+
   function setMoleculeLabelsVisible(show) {
     if (!view || !view.labels) return;
     view.labels.visible = !!show;
@@ -740,6 +830,31 @@
       atomMeshes: built.meshes,
       autorotate: true
     };
+    // 离域大 π 键（如 O₃ 的 Π₃⁴）：跨多个原子的公有电子云 + 标注，
+    // 让“电子不属于某一对原子、两个 O–O 键因此完全相同”看得见
+    if (mol.bigpi && mol.bigpi.atoms && mol.bigpi.atoms.length > 1 && mol.scene !== 'lattice') {
+      var bpAtoms = mol.bigpi.atoms.filter(function (i) { return mol.atoms && mol.atoms[i]; });
+      if (bpAtoms.length > 1) {
+        var piPts = bpAtoms.map(function (i) {
+          return new THREE.Vector3(mol.atoms[i].pos[0], mol.atoms[i].pos[1], mol.atoms[i].pos[2]);
+        });
+        var piE = mol.bigpi.electrons || 4;
+        var pi = makePiCloud(piPts, { electrons: piE });
+        pi.mat.opacity = 0.34;
+        pi.eMat.opacity = 1;
+        root.add(pi.group);
+        var piC = new THREE.Vector3();
+        piPts.forEach(function (p) { piC.add(p); });
+        piC.multiplyScalar(1 / piPts.length);
+        var piLab = textSprite(
+          '大 π 键 ' + (mol.bigpi.label || '') + ' · ' + bpAtoms.length + ' 个原子共用 ' + piE + ' 个 e⁻（离域：不专属某一对原子）',
+          { size: 30, worldH: 0.46, color: '#6d28d9', bold: true }
+        );
+        piLab.position.copy(piC).add(new THREE.Vector3(0, 1.55, 0));
+        root.add(piLab);
+        view.piCloud = pi;
+      }
+    }
     fitView(root);
     // 球棍模型：在原子球上方加元素符号标注（原子多的结构用 mol.noLabels 关掉）
     if (mol.scene !== 'lattice' && !mol.noLabels) {
@@ -905,10 +1020,12 @@
       var A = mol.atoms[oth];
       var dvec = new THREE.Vector3(A.pos[0] - pc[0], A.pos[1] - pc[1], A.pos[2] - pc[2]);
       if (dvec.lengthSq() < 1e-6) continue;
+      var dlen = dvec.length();
       out.neighbors.push({
         sym: A.el,
         q: charges[oth] || 0,
-        dir: dvec.normalize(),
+        dir: dvec.clone().normalize(),
+        len: dlen,
         order: bond.order || 1,
         ionic: bond.style === 'ionic',
         ai: oth,
@@ -917,6 +1034,41 @@
     }
     if (out.neighbors.length) {
       out.note = '两原子共用电子对后，最外层趋于 8 电子（氢为 2）的稳定结构';
+    }
+    // 离域大 π 键：该原子是否参与？参与的话贡献几个电子、另外两个原子分别在哪个方向
+    var bp = mol.bigpi;
+    if (bp && bp.atoms && bp.atoms.length > 1) {
+      var slot = bp.atoms.indexOf(ai2);
+      if (slot >= 0) {
+        var per = bp.per || [];
+        var selfE = per.length ? (per[slot] || 0) : 0;
+        var others = [];
+        bp.atoms.forEach(function (oi, k) {
+          if (oi === ai2 || oi < 0 || oi >= mol.atoms.length) return;
+          var A2 = mol.atoms[oi];
+          // 它在分子里与哪个“同样参与大 π 键”的原子相连（用于画出那根 σ 键）
+          var linkAi = -1;
+          (mol.bonds || []).forEach(function (bd) {
+            var nb2 = (bd.a === oi) ? bd.b : ((bd.b === oi) ? bd.a : -1);
+            if (nb2 >= 0 && bp.atoms.indexOf(nb2) >= 0 && nb2 !== oi) linkAi = nb2;
+          });
+          others.push({
+            sym: A2.el, ai: oi, linkAi: linkAi,
+            // 以被查看原子为原点的真实坐标向量（保持分子原本的键角/相对距离）
+            vec: new THREE.Vector3(A2.pos[0] - pc[0], A2.pos[1] - pc[1], A2.pos[2] - pc[2]),
+            e: per.length ? (per[k] || 0) : 0
+          });
+        });
+        out.bigpi = {
+          centers: bp.atoms.length,
+          electrons: bp.electrons || 4,
+          label: bp.label || '',
+          selfE: selfE,
+          others: others
+        };
+        out.note = bp.atoms.length + ' 个原子的 p 轨道侧向重叠，' + (bp.electrons || 4) +
+          ' 个电子为这 ' + bp.atoms.length + ' 个原子共有（大 π 键 ' + (bp.label || '') + '），不专属某一对原子';
+      }
     }
     return out;
   }
@@ -1027,8 +1179,9 @@
   //  - 半透明同色线框球壳 → 把 K/L/M/N 各层清楚圈定出来，层与层空档明显
   //  - 粒子按该层轨道环带分布（weight 为该层需实画的电子数，0 表示全成键层只画壳线）
   //  - weight 个小球画在该层壳面上 = 直观计数（非键电子；共价成键电子以金色云/小球贴壳面外侧）
-  function addShellCloud(root, shellR, weight, labelText, k, spinList) {
+  function addShellCloud(root, shellR, weight, labelText, k, spinList, opts) {
     var colorHex = SHELL_CLOUD_COLORS[k % SHELL_CLOUD_COLORS.length] || '#2a6df4';
+    opts = opts || {};
     var halo = new THREE.Mesh(
       new THREE.SphereGeometry(shellR, 30, 20),
       new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true, transparent: true, opacity: 0.2, depthWrite: false })
@@ -1039,7 +1192,9 @@
       var dotSize = 1.0 + (k % 3) * 0.15; // 外层云粒子略大，便于区分
       // 云带径向压薄：粒子大致停留在壳层半径上，层间留出清晰空档
       addCloud(root, colorHex, nDots, dotSize, 0.55, makeShellSample(shellR, shellR * 0.055));
-      addShellDots(root, shellR, weight, colorHex, k, spinList);
+      // 价层（有成键上下文时）按“两个一组”摆放，直观区分成对电子与未成对电子
+      if (opts.pair) addPairedDots(root, shellR, Math.floor(weight / 2), colorHex, k, spinList, opts.avoidDir);
+      else addShellDots(root, shellR, weight, colorHex, k, spinList);
     }
     if (labelText) {
       var lab = textSprite(labelText, { size: 40, worldH: 0.6, color: '#1c3152', bold: true });
@@ -1086,16 +1241,21 @@
   }
   // 在电子层模型外围绘制：邻接原子、键轴、共用电子对电子云与电荷标注。
   // 邻原子球可被轻点拾取（跳转到该原子的视图），返回可拾取网格列表。
-  function drawContext(root, info, charge, symbol) {
+  function drawContext(root, info, charge, symbol, opts) {
+    opts = opts || {};
+    // shared=false：共用电子对交给“成键形成演示”动画去表现，这里只画键轴与邻原子核
+    var shared = opts.shared !== false;
     var OR = info.outerR;
     var ballR = 0.7;
     var dist = OR + ballR + 1.3;
     var clickables = [];
+    var partners = [];
     info.neighbors.forEach(function (nb) {
       var dir = nb.dir.clone();
       // 键轴（原子核 -> 邻原子）；离子键用淡灰色
       var col = nb.ionic ? '#aeb9cf' : '#c7d4ea';
-      root.add(thinBond(dir.clone().multiplyScalar(0.5), dir.clone().multiplyScalar(dist - ballR - 0.1), col));
+      var axis = thinBond(dir.clone().multiplyScalar(0.5), dir.clone().multiplyScalar(dist - ballR - 0.1), col);
+      root.add(axis);
       // 邻原子“核球”，可点击跳转
       var ball = new THREE.Mesh(ballGeo(ballR), stdMat(colorOf(nb.sym), { opacity: 0.97 }));
       ball.position.copy(dir).multiplyScalar(dist);
@@ -1103,7 +1263,7 @@
       clickables.push(ball);
       root.add(ball);
       // 共用电子对：高对比橙红色云贴在该原子最外层壳面外侧
-      if (!nb.ionic && nb.order) {
+      if (shared && !nb.ionic && nb.order) {
         addSharedCloud(root, dir, nb.order, OR, dist - ballR);
       }
       // 邻原子标签：离子标电荷，共价标元素
@@ -1112,6 +1272,7 @@
       var lab = textSprite(txt, { size: 32, worldH: tq ? 0.7 : 0.52, color: tq ? (tq > 0 ? '#c2502f' : '#1d66c9') : '#33486b' });
       lab.position.copy(dir).multiplyScalar(dist + ballR + 0.75);
       root.add(lab);
+      partners.push({ nb: nb, dir: dir, ball: ball, axis: axis, label: lab, dist: dist });
     });
     // 中央原子离子态标注
     if (charge) {
@@ -1119,7 +1280,474 @@
       ctxt.position.set(0, 1.6, 0);
       root.add(ctxt);
     }
-    return clickables;
+    return { clickables: clickables, partners: partners };
+  }
+
+  /* ----- 共价键形成演示：轨道电子（成对 / 未成对）→ 两两配对 → σ / π 键 -----
+   * 以 O₂ 为例：进入时先只画一个 O 原子，标明最外层哪些电子已成对（↑↓）、哪些是未成对的（↑）；
+   * 再让另一个 O 原子沿键轴靠近，两对未成对电子两两配对 —— 头碰头成 σ 键、肩并肩成 π 键；
+   * 最后在两核之间显示 4 个成键电子（共用电子对），双方都达到稳定结构。
+   */
+  var atomBond = null;                     // 当前原子视图的成键演示（没有共价邻居时为 null）
+  var BOND_DUR = [1.4, 1.6, 1.9, 1.7, 2.8]; // 各阶段的停留时长（秒；第 5 步＝大 π 键，多留一会儿）
+  var BOND_LERP = 3.0;                     // 阶段之间的过渡速度
+  var BOND_SHARED = new THREE.Color(SHARED_PAIR_NUM);
+
+  function perpBasis(dir) {
+    var ref = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    var u = new THREE.Vector3().crossVectors(dir, ref);
+    if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
+    u.normalize();
+    var v = new THREE.Vector3().crossVectors(dir, u).normalize();
+    return { u: u, v: v };
+  }
+
+  // 把圆柱摆到 from→to 之间（σ 键云、键轴共用）
+  function alignCyl(mesh, from, to, r) {
+    var dir = new THREE.Vector3().subVectors(to, from);
+    var len = dir.length();
+    if (len < 1e-4) { mesh.visible = false; return; }
+    mesh.position.copy(from).addScaledVector(dir, 0.5);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    mesh.scale.set(r, len, r);
+  }
+
+  /**
+   * 价层的“成对电子”：每两个小球紧挨成一对（表示 ↑↓ 成对），
+   * 并尽量摆到远离成键方向的一侧，避免和即将飞去配对的未成对电子混在一起。
+   */
+  function addPairedDots(root, shellR, pairs, colorHex, k, spinList, avoidDir) {
+    if (pairs <= 0) return null;
+    var grp = new THREE.Group();
+    var mat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.98 });
+    var golden = Math.PI * (3 - Math.sqrt(5));
+    for (var i = 0; i < pairs; i++) {
+      var y = pairs === 1 ? 0.2 : (2 * (i + 0.5)) / pairs - 1;
+      var rr = Math.sqrt(Math.max(0, 1 - y * y));
+      var phi = golden * i;
+      var d = new THREE.Vector3(Math.cos(phi) * rr, y, Math.sin(phi) * rr);
+      if (avoidDir) {
+        var dp = d.dot(avoidDir);
+        if (dp > 0) {
+          d.addScaledVector(avoidDir, -1.6 * dp);
+          if (d.lengthSq() < 1e-6) d.copy(avoidDir).multiplyScalar(-1);
+          d.normalize();
+        }
+      }
+      var tan = perpBasis(d).u;
+      for (var s = -1; s <= 1; s += 2) {
+        var m = new THREE.Mesh(ballGeo(0.17), mat);
+        m.position.copy(d).multiplyScalar(shellR).addScaledVector(tan, s * 0.3);
+        grp.add(m);
+      }
+    }
+    grp.userData.spin = 0.22 + (k % 4) * 0.09;
+    if (spinList) spinList.push(grp);
+    root.add(grp);
+    return grp;
+  }
+
+  /** 各阶段的解说文案（随元素与键级变化；有大 π 键时多两步讲离域 π） */
+  function bondSteps(cfg) {
+    var s = cfg.symbol;
+    var v = cfg.valenceE;
+    var be = cfg.bondE;
+    var pe = cfg.piE || 0;
+    var pairs = Math.max(Math.floor((v - be - pe) / 2), 0);
+    // 离域大 π 键（如 O₃ 的 Π₃⁴）：σ 骨架之外，多中心共用的那团电子要单独讲清楚
+    if (cfg.bigpi) {
+      var bp = cfg.bigpi;
+      var sigmaPairs = cfg.bigpi.sigmaPairs || be;
+      var sigmaTotal = cfg.bigpi.sigmaTotal || sigmaPairs;
+      return [
+        {
+          title: '① 孤立的 ' + s + ' 原子',
+          text: '最外层 ' + v + ' 个电子：' + pairs + ' 对成对电子（↑↓） + ' + (be + pe) + ' 个未成对电子（↑）'
+        },
+        {
+          title: '② 三个 ' + s + ' 原子靠近',
+          text: '排成 V 形（键角约 117°），中间一个 ' + s + ' 与两端的 ' + s + ' 各成一个 σ 键（头碰头重叠）'
+        },
+        {
+          title: '③ 未成对电子两两配对',
+          text: '每个 σ 键都由两个原子各出 1 个电子配对 → 三个 ' + s + ' 之间共 ' + sigmaTotal +
+            ' 对共用电子对（本原子出 ' + sigmaPairs + ' 个，变橙色）'
+        },
+        {
+          title: '④ p 轨道肩并肩重叠',
+          text: '三个 ' + s + ' 各出一个垂直于分子平面的 p 轨道，侧面相互重叠（紫色示意）'
+        },
+        {
+          title: '⑤ 形成大 π 键 ' + (bp.label || ''),
+          text: bp.centers + ' 个 ' + s + ' 共用 ' + bp.electrons + ' 个电子：它们不属于某一对原子，而为三个原子共有（离域）→ 两个 ' + s + '–' + s + ' 键完全相同'
+        }
+      ];
+    }
+    var unpaired = be + pe;
+    var hasPi = (cfg.maxOrder || 1) >= 2;
+    var total = be * 2; // 每对 2 个电子：自己出 be 个，对方出 be 个
+    var typeText = hasPi ? '头碰头成 σ 键 + 肩并肩成 π 键' : '头碰头重叠成 σ 键';
+    return [
+      {
+        title: '① 孤立的 ' + s + ' 原子',
+        text: '最外层 ' + v + ' 个电子：' + pairs + ' 对成对电子（↑↓） + ' + unpaired + ' 个未成对电子（↑）'
+      },
+      {
+        title: '② 另一个原子靠近',
+        text: '两个 ' + s + ' 原子沿键轴靠近，未成对电子迎面相对（蓝色小球 = 尚未配对的单电子）'
+      },
+      {
+        title: '③ 未成对电子两两配对',
+        text: be + ' 个未成对电子与对方 ' + be + " 个两两配对 → " + be + ' 对共用电子对（变橙色）'
+      },
+      {
+        title: '④ 形成共价键',
+        text: typeText + ' → 两核之间共 ' + total + ' 个成键电子，双方最外层都达到稳定结构'
+      }
+    ];
+  }
+
+  /**
+   * 构造成键演示：为每个共价邻居生成 σ（+ π）键、参与配对的电子与配套标注。
+   * cfg: { partners, OR, ballR, valenceE, bondE, maxOrder, symbol, shellColor }
+   */
+  function buildBondDemo(root, cfg) {
+    var partners = cfg.partners || [];
+    var OR = cfg.OR;
+    var ballR = cfg.ballR;
+    var shellCol = new THREE.Color(cfg.shellColor || '#2a6df4');
+    var items = [];
+    var pairCount = 0;
+    var avgDir = new THREE.Vector3();
+    partners.forEach(function (p) { avgDir.add(p.dir); });
+    if (avgDir.lengthSq() < 1e-6) avgDir.set(1, 0, 0);
+    avgDir.normalize();
+    var basis0 = perpBasis(partners.length ? partners[0].dir : avgDir);
+
+    partners.forEach(function (p) {
+      if (p.piOnly) return; // 大 π 键体系里“不与被查看原子直接成键”的原子，单独按连线处理
+      var order = Math.max(1, Math.min(p.nb.order || 1, 3));
+      var basis = perpBasis(p.dir);
+      var mid = p.dir.clone().multiplyScalar(p.dist * 0.5);
+      for (var k = 0; k < order; k++) {
+        pairCount++;
+        var isSigma = k === 0;
+        // σ 的电子对紧贴键轴；π 的电子对分列键轴两侧（肩并肩）
+        var offDir = isSigma ? basis.v.clone() : (k === 1 ? basis.u.clone() : basis.v.clone());
+        var off = isSigma ? 0 : 0.95;
+        var center = isSigma ? mid.clone() : mid.clone().addScaledVector(offDir, off);
+        var startC = p.dir.clone().multiplyScalar(OR);
+        var startP = p.dir.clone().multiplyScalar(p.dist - ballR - 0.5);
+        var endC = center.clone().addScaledVector(basis.u, 0.42);
+        var endP = center.clone().addScaledVector(basis.u, -0.42);
+        if (!isSigma) {
+          startC.addScaledVector(offDir, 0.5);
+          startP.addScaledVector(offDir, 0.5);
+          endC = mid.clone().addScaledVector(offDir, off);
+          endP = mid.clone().addScaledVector(offDir, -off);
+        }
+        // 参与成键的一对电子：中心原子出一个、邻居出一个（颜色随配对进度由壳色渐变为橙色）
+        var eMat = new THREE.MeshBasicMaterial({ color: shellCol.clone(), transparent: true, opacity: 0.98 });
+        var eC = new THREE.Mesh(ballGeo(0.2), eMat);
+        var eP = new THREE.Mesh(ballGeo(0.2), eMat);
+        eC.position.copy(startC);
+        eP.position.copy(startP);
+        root.add(eC);
+        root.add(eP);
+        // 键云：σ 沿键轴的圆柱；π 是键轴两侧的两块扁云
+        var cloudMat = new THREE.MeshBasicMaterial({ color: SHARED_PAIR_NUM, transparent: true, opacity: 0, depthWrite: false });
+        var cloud = new THREE.Group();
+        if (isSigma) {
+          var cyl = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 14), cloudMat);
+          alignCyl(cyl, p.dir.clone().multiplyScalar(OR * 0.92), p.dir.clone().multiplyScalar(p.dist - ballR - 0.2), 0.24);
+          cloud.add(cyl);
+        } else {
+          for (var sg = -1; sg <= 1; sg += 2) {
+            var lobe = new THREE.Mesh(ballGeo(1), cloudMat);
+            lobe.position.copy(mid).addScaledVector(offDir, sg * off);
+            lobe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), p.dir.clone());
+            lobe.scale.set(0.5, 1.3, 0.5);
+            cloud.add(lobe);
+          }
+        }
+        root.add(cloud);
+        // 键型标注 σ / π
+        var lpos = isSigma
+          ? center.clone().addScaledVector(basis.v, 0.95)
+          : center.clone().addScaledVector(offDir, 0.8);
+        var lab = textSprite(isSigma ? 'σ' : 'π', { size: 34, worldH: 0.55, color: '#c2410c', bold: true });
+        lab.position.copy(lpos);
+        lab.material.opacity = 0;
+        root.add(lab);
+        items.push({
+          partner: p, isSigma: isSigma,
+          startC: startC, startP: startP, endC: endC, endP: endP,
+          eC: eC, eP: eP, eMat: eMat, cloud: cloud, cloudMat: cloudMat, lab: lab
+        });
+      }
+    });
+
+    /* 大 π 键体系里“不与被查看原子直接成键”的原子（如 O₃ 另一端的 O）：
+     * 它与相连的伙伴之间同样有一对 σ 电子，位置随两球实时变化，故每帧重算。 */
+    var linkItems = [];
+    partners.forEach(function (p) {
+      if (!p.piOnly || !p.link) return;
+      pairCount++;
+      var lMat = new THREE.MeshBasicMaterial({ color: shellCol.clone(), transparent: true, opacity: 0.98 });
+      var lC = new THREE.Mesh(ballGeo(0.2), lMat);
+      var lP = new THREE.Mesh(ballGeo(0.2), lMat);
+      root.add(lC);
+      root.add(lP);
+      var lCloudMat = new THREE.MeshBasicMaterial({ color: SHARED_PAIR_NUM, transparent: true, opacity: 0, depthWrite: false });
+      var lCyl = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 14), lCloudMat);
+      root.add(lCyl);
+      var lLab = textSprite('σ', { size: 34, worldH: 0.55, color: '#c2410c', bold: true });
+      lLab.material.opacity = 0;
+      root.add(lLab);
+      linkItems.push({ a: p.link, b: p, eC: lC, eP: lP, eMat: lMat, cyl: lCyl, cloudMat: lCloudMat, lab: lLab, ballR: ballR });
+    });
+
+    /* 离域大 π 键：三个（或多个）原子的 p 轨道侧向重叠成一整条云，
+     * 电子从各原子旁飞入云中 —— 直观表达“电子为多原子共有、不专属某一对”。 */
+    var piFx = null;
+    if (cfg.bigpi) {
+      var bpc = makePiCloud(cfg.bigpi.pts, {
+        electrons: cfg.bigpi.electrons,
+        height: cfg.bigpi.height || 1.25,
+        thickness: 0.44, width: 0.9, eR: 0.22
+      });
+      root.add(bpc.group);
+      // 每个电子的起点 = 它所属原子的 p 轨道位置（被查看原子在最外层壳面外，邻原子在核球旁）
+      var per = cfg.bigpi.per || [];
+      var starts = [];
+      cfg.bigpi.pts.forEach(function (anchor, ai) {
+        var n = per[ai] || 0;
+        for (var c = 0; c < n; c++) {
+          var base = (ai === 0)
+            ? anchor.clone().addScaledVector(bpc.normal, OR + 0.9)
+            : anchor.clone().addScaledVector(bpc.normal, 2.0);
+          if (c > 0) base.addScaledVector(bpc.normal, (c % 2 ? 1 : -1) * 1.1);
+          starts.push(base);
+        }
+      });
+      bpc.electrons.forEach(function (m, mi) {
+        m.userData.start = starts[mi] || m.position.clone();
+        m.userData.end = m.position.clone();
+        m.position.copy(m.userData.start);
+      });
+      var piC = new THREE.Vector3();
+      cfg.bigpi.pts.forEach(function (p2) { piC.add(p2); });
+      piC.multiplyScalar(1 / Math.max(cfg.bigpi.pts.length, 1));
+      var piLab = textSprite(
+        '大 π 键 ' + (cfg.bigpi.label || '') + ' · ' + cfg.bigpi.centers + ' 个原子共用 ' + cfg.bigpi.electrons + ' 个 e⁻',
+        { size: 32, worldH: 0.62, color: '#6d28d9', bold: true }
+      );
+      piLab.position.copy(piC).addScaledVector(bpc.normal, (cfg.bigpi.height || 1.25) + 1.5);
+      piLab.material.opacity = 0;
+      root.add(piLab);
+      piFx = { cloud: bpc, lab: piLab };
+    }
+
+    // 价层轨道标注：成对电子 / 未成对电子（成键后淡出）
+    var pairs = Math.max(Math.floor((cfg.valenceE - cfg.bondE - (cfg.piE || 0)) / 2), 0);
+    var piE = cfg.piE || 0;
+    var singleTxt = piE
+      ? ('未成对电子 ↑ ×' + (cfg.bondE + piE) + '（' + cfg.bondE + ' 个成 σ 键 · ' + piE + ' 个进大 π 键）')
+      : ('未成对电子 ↑ ×' + cfg.bondE);
+    var singleLab = textSprite(singleTxt, { size: 30, worldH: 0.52, color: '#1d4ed8', bold: true });
+    singleLab.position.copy(avgDir).multiplyScalar(OR + 1.4).addScaledVector(basis0.u, 2.2);
+    root.add(singleLab);
+    var pairLab = textSprite('成对电子 ↑↓ ×' + pairs, { size: 30, worldH: 0.52, color: '#334155', bold: true });
+    pairLab.position.copy(avgDir).multiplyScalar(-(OR + 1.6));
+    root.add(pairLab);
+    // 成键电子总数标注（摆在键区旁边）
+    var totalLab = textSprite('共用 ' + pairCount * 2 + ' e⁻', { size: 34, worldH: 0.62, color: '#c2410c', bold: true });
+    var firstMid = partners.length ? partners[0].dir.clone().multiplyScalar(partners[0].dist * 0.5) : new THREE.Vector3();
+    totalLab.position.copy(firstMid).add(new THREE.Vector3(0, 1.9, 0)); // 摆在键区正上方，不随键轴方向转
+    totalLab.material.opacity = 0;
+    root.add(totalLab);
+    // 阶段提示（放在场景上方，随播放推进更新文字）
+    var stageLab = textSprite('', { size: 34, worldH: 0.6, color: '#0f172a', bold: true });
+    stageLab.position.set(0, OR + 3.1, 0);
+    root.add(stageLab);
+
+    var demo = {
+      steps: bondSteps({
+        symbol: cfg.symbol, valenceE: cfg.valenceE, bondE: cfg.bondE,
+        piE: cfg.piE || 0, maxOrder: cfg.maxOrder, bigpi: cfg.bigpi
+          ? {
+            label: cfg.bigpi.label, centers: cfg.bigpi.centers, electrons: cfg.bigpi.electrons,
+            sigmaPairs: pairCount - linkItems.length, sigmaTotal: pairCount
+          }
+          : null
+      }),
+      step: 0, timer: 0, playing: false, done: false,
+      cur: { near: 0, pair: 0, bond: 0, pi: 0 },
+      goal: { near: 0, pair: 0, bond: 0, pi: 0 },
+      items: items, linkItems: linkItems, partners: partners, ballR: ballR,
+      singleLab: singleLab, pairLab: pairLab, totalLab: totalLab, stageLab: stageLab,
+      piFx: piFx, hasBigPi: !!cfg.bigpi,
+      shellCol: shellCol
+    };
+    return demo;
+  }
+
+  /** 把当前 cur 进度应用到场景（邻居位置、电子位置与颜色、键云与标注） */
+  function bondApply(d) {
+    var near = d.cur.near, pr = d.cur.pair, bd = d.cur.bond;
+    for (var i = 0; i < d.partners.length; i++) {
+      var p = d.partners[i];
+      var dist = p.dist * 1.9 + (p.dist - p.dist * 1.9) * near;
+      p.ball.position.copy(p.dir).multiplyScalar(dist);
+      p.ball.visible = near > 0.02;
+      if (p.ball.material) p.ball.material.opacity = 0.35 + 0.65 * near;
+      if (p.axis) {
+        p.axis.visible = near > 0.05;
+        // 键距是演示专用的（比 drawContext 摆的更远），键轴要跟着拉长
+        if (near > 0.05) {
+          if (p.piOnly && p.link) {
+            // 大 π 键体系里“伙伴之间”的键轴：连在中间原子与另一端原子之间
+            alignCyl(p.axis, p.link.ball.position, p.ball.position, 1);
+          } else {
+            alignCyl(p.axis, p.dir.clone().multiplyScalar(0.5), p.dir.clone().multiplyScalar(dist - d.ballR - 0.1), 1);
+          }
+        }
+      }
+      if (p.label) {
+        p.label.position.copy(p.dir).multiplyScalar(dist + d.ballR + 0.75);
+        p.label.material.opacity = near;
+      }
+    }
+    for (var j = 0; j < d.items.length; j++) {
+      var it = d.items[j];
+      it.eC.position.lerpVectors(it.startC, it.endC, pr);
+      it.eP.position.lerpVectors(it.startP, it.endP, pr);
+      if (it.eMat) it.eMat.color.copy(d.shellCol).lerp(BOND_SHARED, pr);
+      if (it.cloudMat) it.cloudMat.opacity = 0.55 * bd;
+      if (it.cloud) it.cloud.visible = bd > 0.02;
+      if (it.lab) it.lab.material.opacity = bd;
+    }
+    // 大 π 键体系内“伙伴之间”的 σ 键（如 O₃ 中间 O 与另一端 O）：两端都在动，每帧按球位置重算
+    for (var li = 0; li < (d.linkItems || []).length; li++) {
+      var t = d.linkItems[li];
+      var pa = t.a.ball.position, pb = t.b.position === undefined ? t.b.ball.position : t.b.ball.position;
+      var ld = new THREE.Vector3().subVectors(pb, pa);
+      if (ld.lengthSq() < 1e-4) continue;
+      var un = ld.clone().normalize();
+      var perpU = perpBasis(un).u;
+      var lmid = pa.clone().addScaledVector(ld, 0.5);
+      var sA = pa.clone().addScaledVector(un, t.ballR + 0.5);
+      var sB = pb.clone().addScaledVector(un, -(t.ballR + 0.5));
+      t.eC.position.lerpVectors(sA, lmid.clone().addScaledVector(perpU, 0.42), pr);
+      t.eP.position.lerpVectors(sB, lmid.clone().addScaledVector(perpU, -0.42), pr);
+      t.eMat.color.copy(d.shellCol).lerp(BOND_SHARED, pr);
+      t.cloudMat.opacity = 0.55 * bd;
+      t.cyl.visible = bd > 0.02;
+      if (bd > 0.02) {
+        alignCyl(t.cyl, pa.clone().addScaledVector(un, t.ballR + 0.2), pb.clone().addScaledVector(un, -(t.ballR + 0.2)), 0.24);
+      }
+      t.lab.position.copy(lmid).addScaledVector(perpU, 0.95);
+      t.lab.material.opacity = bd;
+    }
+    // 离域大 π 键：电子从各原子 p 轨道飞入公有云
+    if (d.piFx) {
+      var pv = d.cur.pi || 0;
+      d.piFx.cloud.mat.opacity = 0.36 * pv;
+      d.piFx.cloud.eMat.opacity = pv;
+      d.piFx.cloud.group.visible = pv > 0.02;
+      d.piFx.lab.material.opacity = pv;
+      d.piFx.cloud.electrons.forEach(function (m) {
+        if (!m.userData.start) return;
+        m.position.lerpVectors(m.userData.start, m.userData.end, pv);
+      });
+    }
+    if (d.singleLab) d.singleLab.material.opacity = 1 - 0.75 * Math.max(pr, (d.hasBigPi ? (d.cur.pi || 0) : 0));
+    if (d.pairLab) d.pairLab.material.opacity = 1 - 0.45 * pr;
+    if (d.totalLab) d.totalLab.material.opacity = bd;
+  }
+
+  function bondGoals(d) {
+    d.goal.near = d.step >= 1 ? 1 : 0;
+    d.goal.pair = d.step >= 2 ? 1 : 0;
+    d.goal.bond = d.step >= 3 ? 1 : 0;
+    d.goal.pi = (d.hasBigPi && d.step >= 4) ? 1 : 0;
+    if (d.stageLab) setSpriteText(d.stageLab, d.steps[d.step] ? d.steps[d.step].title : '');
+  }
+
+  function notifyBond(d) {
+    notify({
+      ev: 'bondDemo',
+      step: d.step,
+      steps: d.steps.length,
+      playing: d.playing,
+      title: d.steps[d.step] ? d.steps[d.step].title : '',
+      text: d.steps[d.step] ? d.steps[d.step].text : ''
+    });
+  }
+
+  function updateBondDemo(dt) {
+    var d = atomBond;
+    if (!d) return;
+    if (d.playing) {
+      d.timer += dt;
+      if (d.timer >= (BOND_DUR[d.step] || 1.4)) {
+        d.timer = 0;
+        if (d.step < d.steps.length - 1) {
+          d.step++;
+          bondGoals(d);
+          notifyBond(d);
+          showHint(d.steps[d.step].text, 2600);
+        } else {
+          d.playing = false;
+          d.done = true;
+          notifyBond(d);
+        }
+      }
+    }
+    var kk = Math.min(1, dt * BOND_LERP);
+    d.cur.near += (d.goal.near - d.cur.near) * kk;
+    d.cur.pair += (d.goal.pair - d.cur.pair) * kk;
+    d.cur.bond += (d.goal.bond - d.cur.bond) * kk;
+    d.cur.pi += ((d.goal.pi || 0) - (d.cur.pi || 0)) * kk;
+    bondApply(d);
+  }
+
+  function cmdAtomBond(action, value) {
+    var d = atomBond;
+    if (!d) return;
+    var last = d.steps.length - 1;
+    if (action === 'play') {
+      if (d.done || d.step >= last) {
+        d.step = 0;
+        d.cur.near = 0; d.cur.pair = 0; d.cur.bond = 0; d.cur.pi = 0;
+        bondGoals(d);
+      }
+      d.playing = true;
+      d.done = false;
+      d.timer = 0;
+    } else if (action === 'pause') {
+      d.playing = false;
+    } else if (action === 'restart') {
+      d.step = 0;
+      d.playing = true;
+      d.done = false;
+      d.timer = 0;
+      bondGoals(d);
+    } else if (action === 'next') {
+      d.playing = false;
+      d.step = Math.min(d.step + 1, last);
+      bondGoals(d);
+    } else if (action === 'prev') {
+      d.playing = false;
+      d.step = Math.max(d.step - 1, 0);
+      bondGoals(d);
+    } else if (action === 'step' && typeof value === 'number') {
+      d.playing = false;
+      d.step = clamp(Math.round(value), 0, last);
+      bondGoals(d);
+    }
+    notifyBond(d);
+    if (d.steps[d.step]) showHint(d.steps[d.step].text, 2600);
   }
 
   function showAtomScene(symbol, ctx) {
@@ -1175,7 +1803,24 @@
     }
     var valenceIdx = shells.length - 1;
     var valenceE = valenceIdx >= 0 ? shells[valenceIdx] : 0;
-    var lone = (covNeighbors > 0) ? Math.max(valenceE - bondE, 0) : valenceE;
+    // 大 π 键：该原子另外拿出几个电子进入多中心 π 体系（O₃ 中端位 O 出 1 个、中间 O 出 2 个）
+    var piE = (ctxInfo && ctxInfo.bigpi) ? (ctxInfo.bigpi.selfE || 0) : 0;
+    var lone = (covNeighbors > 0) ? Math.max(valenceE - bondE - piE, 0) : valenceE;
+
+    // --- 共价邻居统计：决定价层电子怎样摆（成对 / 未成对），以及要不要演一遍成键过程 ---
+    var bondPartners = [];
+    var avgBondDir = new THREE.Vector3();
+    var maxOrder = 1;
+    if (ctxInfo) {
+      ctxInfo.neighbors.forEach(function (nb) {
+        if (nb.ionic) return;
+        bondPartners.push(nb);
+        avgBondDir.add(nb.dir);
+        maxOrder = Math.max(maxOrder, nb.order || 1);
+      });
+    }
+    if (avgBondDir.lengthSq() < 1e-6) avgBondDir.set(0, 1, 0);
+    avgBondDir.normalize();
 
     // --- 电子云能层：层距拉大 + 线框能层球壳 + 静态轨迹云；成键外层电子画在最外层壳上 ---
     var shellGap = 2.1;
@@ -1188,13 +1833,16 @@
       var shellR = 2.8 + k * shellGap;
       var isValence = (k === valenceIdx);
       var weight = count;
+      var shellOpts = null;
       if (isValence && covNeighbors > 0 && lone <= 0) {
         weight = 0; // 全成键：该层电子全部以橙红共用云出现在壳面外侧
         valenceSkipped = true;
       } else if (isValence && covNeighbors > 0) {
         weight = lone;
+        // 价层按“两个一组”摆放：成对电子(↑↓)与待配对的未成对电子(↑)一眼可分
+        shellOpts = { pair: true, avoidDir: avgBondDir };
       }
-      addShellCloud(root, shellR, weight, (shellNames[k] || (k + 1)) + ' 层  ' + count + ' e⁻', k, orbitGroups);
+      addShellCloud(root, shellR, weight, (shellNames[k] || (k + 1)) + ' 层  ' + count + ' e⁻', k, orbitGroups, shellOpts);
     }
     if (valenceSkipped) {
       var allLab = textSprite('最外层 ' + valenceE + ' e⁻ 全部参与共用（金色云贴在最外层），共享后满足 2/8 稳定结构', { size: 30, worldH: 0.46, color: '#7c5a10', bold: true });
@@ -1203,10 +1851,101 @@
     }
 
     // --- 分子上下文：邻接原子 / 共用电子对 / 离子电荷；邻原子球可轻点跳转查看 ---
+    //     有共价邻居时共用电子对交给“成键演示”动画表现（shared=false），不再画静态橙云
     var partnerMeshes = [];
+    var covPartnerMeshes = [];
+    atomBond = null;
     if (ctxInfo) {
       ctxInfo.outerR = 2.8 + valenceIdx * shellGap;
-      partnerMeshes = drawContext(root, ctxInfo, charge, el.symbol) || [];
+      var dc = drawContext(root, ctxInfo, charge, el.symbol, { shared: !(covNeighbors > 0 && bondE > 0) });
+      partnerMeshes = (dc && dc.clickables) || [];
+      covPartnerMeshes = ((dc && dc.partners) || []).filter(function (p) { return !p.nb.ionic; });
+    }
+    if (covPartnerMeshes.length && bondE > 0) {
+      // 演示专用的键距：拉开到两个价层壳之外，两核之间留出空档，
+      // 配对后的成键电子对才能清清楚楚地停在“中间”（否则会钻进电子壳里被盖住）
+      var demoOR = 2.8 + valenceIdx * shellGap;
+      covPartnerMeshes.forEach(function (p) {
+        if (!p.piOnly) p.dist = demoOR * 2 + 3.0;
+      });
+      /* --- 离域大 π 键：把“参与但不与本原子直接成键”的原子也请进画面 ---
+       * 例：看 O₃ 端位 O 时，另一端的 O 不直接与它成键，但三个 O 共享同一团 π 电子，
+       * 缺了它就讲不清“大 π 键是三中心的”。位置按分子真实坐标等比缩放，
+       * 键角（117°）与两个 O–O 键等长的关系保持与真实分子一致。 */
+      var bigPiCfg = null;
+      if (ctxInfo && ctxInfo.bigpi) {
+        var bpi = ctxInfo.bigpi;
+        var refP = null;
+        covPartnerMeshes.forEach(function (p) { if (!refP && !p.piOnly) refP = p; });
+        var pScale = (refP && refP.nb && refP.nb.len) ? (refP.dist / refP.nb.len) : 1;
+        var piPts = [new THREE.Vector3(0, 0, 0)];
+        var piPer = [bpi.selfE || 0];
+        bpi.others.forEach(function (o) {
+          var hit = null;
+          covPartnerMeshes.forEach(function (p) { if (p.nb && p.nb.ai === o.ai) hit = p; });
+          if (hit) { // 已是直接邻居（中间 O）：用它的演示位置
+            piPts.push(hit.dir.clone().multiplyScalar(hit.dist));
+            piPer.push(o.e || 0);
+            return;
+          }
+          var v2 = o.vec;
+          var len2 = v2.length();
+          if (len2 < 1e-6) return;
+          var dir2 = v2.clone().normalize();
+          var dist2 = Math.max(len2 * pScale, (refP ? refP.dist : 12) * 0.9);
+          var ball2 = new THREE.Mesh(ballGeo(0.7), stdMat(colorOf(o.sym), { opacity: 0.97 }));
+          ball2.position.copy(dir2).multiplyScalar(dist2);
+          ball2.userData = { element: o.sym, mol: ctxInfo.molId, ai: o.ai };
+          root.add(ball2);
+          partnerMeshes.push(ball2); // 同样可轻点跳转
+          var lab2 = textSprite(o.sym, { size: 32, worldH: 0.52, color: '#33486b' });
+          lab2.position.copy(dir2).multiplyScalar(dist2 + 1.45);
+          root.add(lab2);
+          var linkP = null;
+          covPartnerMeshes.forEach(function (p) { if (p.nb && p.nb.ai === o.linkAi) linkP = p; });
+          var axis2 = null;
+          if (linkP) { // 它与中间 O 之间的 σ 键细杆
+            axis2 = thinBond(new THREE.Vector3(), new THREE.Vector3(1, 0, 0), '#c7d4ea');
+            root.add(axis2);
+          }
+          var extra = {
+            nb: { order: 1, ionic: false, ai: o.ai, sym: o.sym, len: len2 },
+            dir: dir2, ball: ball2, axis: axis2, label: lab2, dist: dist2,
+            piOnly: true, link: linkP
+          };
+          covPartnerMeshes.push(extra);
+          piPts.push(dir2.clone().multiplyScalar(dist2));
+          piPer.push(o.e || 0);
+        });
+        if (piPts.length >= 2) {
+          bigPiCfg = {
+            pts: piPts, per: piPer, electrons: bpi.electrons,
+            centers: bpi.centers, label: bpi.label, height: 1.25
+          };
+        }
+      }
+      atomBond = buildBondDemo(root, {
+        partners: covPartnerMeshes,
+        OR: 2.8 + valenceIdx * shellGap,
+        ballR: 0.7,
+        valenceE: valenceE,
+        bondE: bondE,
+        piE: piE,
+        maxOrder: maxOrder,
+        bigpi: bigPiCfg,
+        symbol: el.symbol,
+        shellColor: SHELL_CLOUD_COLORS[valenceIdx % SHELL_CLOUD_COLORS.length]
+      });
+      bondGoals(atomBond);
+      bondApply(atomBond);
+    }
+    if (atomBond) {
+      // 取景按“成键完成之后”的范围算：否则远处（还没靠近）的邻原子会把镜头拉得很远
+      atomBond.partners.forEach(function (p) {
+        p.ball.visible = true;
+        p.ball.position.copy(p.dir).multiplyScalar(p.dist);
+        if (p.label) p.label.material.opacity = 1;
+      });
     }
 
     sceneRoot.add(root);
@@ -1226,10 +1965,13 @@
           var og = orbitGroups[oi];
           og.rotation.y += og.userData.spin * dt;
         }
+        // 共价键形成演示（靠近 → 配对 → 成键）
+        updateBondDemo(dt);
         // 电子云整体保持静态（无环绕动画）
       }
     };
     fitView(root);
+    if (atomBond) bondApply(atomBond); // 取景后回到“初始：只有一个原子”的状态
     // 整体回中，保证原子核始终在视口中心
     if (Math.abs(camTarget.x) > 1e-4 || Math.abs(camTarget.y) > 1e-4 || Math.abs(camTarget.z) > 1e-4) {
       root.position.sub(camTarget);
@@ -1238,24 +1980,51 @@
       view.homeTarget = new THREE.Vector3(0, 0, 0);
     }
     applyCamMode('solid');
+    // 再按上下可视带（顶部导航 ~ 底部信息卡）取景，原子核才落在“看得见的那一条”中央
+    view.bandTop = rxBand.top;
+    view.bandBottom = rxBand.bottom;
+    frameAtomView();
 
     var tip;
-    if (ctxMol) {
+    var bpCtx = ctxInfo && ctxInfo.bigpi ? ctxInfo.bigpi : null;
+    if (atomBond) {
+      tip = bpCtx
+        ? '正在演示成键：σ 骨架 → p 轨道侧向重叠 → 三中心大 π 键 ' + (bpCtx.label || '')
+        : '正在演示共价键的形成：轨道电子 → 两两配对 → σ / π 键';
+    } else if (ctxMol) {
       tip = charge
         ? ('在 ' + ctxMol.name + ' 中，该原子以 ' + ionText(el.symbol, charge) + ' 形式存在')
         : (covNeighbors > 0
-            ? ('在 ' + ctxMol.name + ' 中 · 最外层 ' + valenceE + ' 个 e⁻ 中 ' + bondE + ' 个参与共用，橙色共用云贴在最外层壳面 · 轻点外圈原子核球可切换查看')
+            ? ('在 ' + ctxMol.name + ' 中 · 最外层 ' + valenceE + ' 个 e⁻：' + lone + ' 个成对（孤对）· ' + bondE +
+                ' 个成 σ 键' + (piE ? ' · ' + piE + ' 个进入大 π 键 ' + (bpCtx && bpCtx.label ? bpCtx.label : '') : '') +
+                ' · 轻点外圈原子核球可切换查看')
             : ('在 ' + ctxMol.name + ' 中 · 彩色分层轨迹云示意，无固定轨道'));
     } else {
       tip = '立体视角查看能层分层 · 彩色线框=各层球壳 · 切俯视可逐层数电子 · 八隅体见下方卡片';
     }
-    showHint(tip, 3600);
+    // 有共价成键演示时，进入后自动演一遍：先看清孤立原子的轨道电子，再演配对成键
+    if (atomBond) {
+      atomBond.playing = true;
+      atomBond.done = false;
+      atomBond.timer = -0.6; // 开头空一拍
+      notifyBond(atomBond);
+      showHint(atomBond.steps[0].text, 3200);
+    } else {
+      showHint(tip, 3600);
+    }
     notify({
       ev: 'atomInfo', symbol: el.symbol, name: el.name, p: el.p, n: el.n,
       shells: shells, charge: charge,
       mol: ctx ? ctx.molId : null, ai: (ctx && ctx.ai !== undefined) ? ctx.ai : null,
       valenceE: valenceE, bondE: covNeighbors > 0 ? bondE : 0, shared: covNeighbors,
-      molName: ctxMol ? ctxMol.name : null
+      molName: ctxMol ? ctxMol.name : null,
+      // 最外层电子的去向：σ 键用掉几个、进大 π 键几个、剩下几对孤对电子
+      sigmaE: covNeighbors > 0 ? bondE : 0,
+      piE: piE,
+      loneE: (covNeighbors > 0) ? lone : 0,
+      bigPi: bpCtx ? { label: bpCtx.label || '', centers: bpCtx.centers, electrons: bpCtx.electrons, selfE: piE } : null,
+      // 共价成键演示：有值时宿主显示“重播 / 分步”控制条
+      bond: atomBond ? { steps: atomBond.steps.length } : null
     });
   }
 
@@ -2302,6 +3071,9 @@
       }
     } else if (cmd === 'reaction') {
       cmdReaction(msg.action, msg.value);
+    } else if (cmd === 'atomBond') {
+      // 原子视图里的“共价键形成”演示：play / pause / restart / next / prev / step
+      cmdAtomBond(msg.action, msg.value);
     } else if (cmd === 'view') {
       if (msg.action === 'reset' && view) {
         userZoomed = false; // 复位后重新允许自动取景
@@ -2334,6 +3106,11 @@
             view.bandTop = rxBand.top;
             view.bandBottom = rxBand.bottom;
             rxFrameAcc = 1; // 下一帧立刻按新的可视带重新取景
+          } else if (view && view.kind === 'atom') {
+            // 底部信息卡高度变化（展开/收起介绍、出现成键演示卡）时重新取景
+            view.bandTop = rxBand.top;
+            view.bandBottom = rxBand.bottom;
+            if (!userZoomed) frameAtomView();
           }
         }
       }
@@ -2360,7 +3137,28 @@
       goal: camTargetGoal.toArray(),
       bounds: b ? { c: b.c.toArray(), r: b.r } : null,
       userFramed: !!view.userFramed,
-      userZoomed: userZoomed
+      userZoomed: userZoomed,
+      // 大 π 键（离域 π）相关：分子视图的公有云、原子视图的成键演示进度
+      piCloud: view.piCloud ? view.piCloud.electrons.length : 0,
+      // 大 π 键云的世界包围盒（确认它横跨了参与的每个原子，而不是缩在一处）
+      piBox: (function () {
+        var box = null;
+        try {
+          view.root.traverse(function (n) {
+            if (n.material && n.material.color && n.material.color.getHex() === BIG_PI_NUM) {
+              if (!box) box = new THREE.Box3();
+              box.expandByObject(n);
+            }
+          });
+        } catch (e) { return null; }
+        return box ? { min: box.min.toArray().map(round3), max: box.max.toArray().map(round3) } : null;
+      })(),
+      bond: atomBond ? {
+        steps: atomBond.steps.length, step: atomBond.step, hasBigPi: !!atomBond.hasBigPi,
+        pi: atomBond.cur.pi, near: atomBond.cur.near, pair: atomBond.cur.pair, bond: atomBond.cur.bond,
+        partners: atomBond.partners.length, linkItems: atomBond.linkItems.length,
+        piE: atomBond.piFx ? atomBond.piFx.cloud.electrons.length : 0
+      } : null
     };
   };
   // 调试口：快进 N 帧动画逻辑（headless 截图时渲染极慢，用它把动画推到稳态再截图）

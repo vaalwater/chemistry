@@ -6,16 +6,19 @@ import Chem3DView from '../components/Chem3DView';
 import { colors, radii, shadow } from '../theme';
 import type { SceneReq } from '../types';
 import {
+  ALLOTROPE_GROUPS,
   ALLOTROPE_MOL,
-  ALLOTROPES,
   allotropeById,
+  allotropesOfGroup,
   COMPARE_ROWS,
   COMPARE_TIPS,
   CONCEPTS,
   CONCEPT_ORDER,
+  groupById,
   QUIZ,
   QUIZ_OPTIONS,
   type AllotropeId,
+  type AllotropeGroupId,
   type ConceptKey,
 } from '../allotrope/allotrope';
 
@@ -32,9 +35,19 @@ export default function AllotropeScreen({ onBack }: { onBack: () => void }) {
   const { width, height: winH } = useWindowDimensions();
   const wide = width >= 780;
 
+  const [group, setGroup] = useState<AllotropeGroupId>('C');
   const [active, setActive] = useState<AllotropeId>('diamond');
   const [showCompare, setShowCompare] = useState(false);
+  const groupMeta = groupById(group);
+  const items = allotropesOfGroup(group); // 当前元素族下的所有单质
   const entry = allotropeById(active);
+
+  // 切换元素族时，默认选中该族的第一个单质（对比表也跟着换成这一族）
+  const pickGroup = (g: AllotropeGroupId) => {
+    setGroup(g);
+    setActive(groupById(g).ids[0]);
+    setShowCompare(false);
+  };
 
   const scene = useMemo<SceneReq>(
     () => ({ kind: 'molecule', id: `allotrope-${active}`, mol: ALLOTROPE_MOL[active] }),
@@ -62,14 +75,30 @@ export default function AllotropeScreen({ onBack }: { onBack: () => void }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <Text style={styles.lead}>
-          金刚石、石墨、C₆₀ 都由碳元素组成。切换下面的按钮，看它们的碳原子是怎么搭的，
-          再对照下方的性质 —— 硬度、导电性、熔点、用途全写在结构里。
-        </Text>
+        <Text style={styles.lead}>{groupMeta.lead}</Text>
 
-        {/* ---------- 选择器 ---------- */}
+        {/* ---------- 元素族选择（C / O / P / S / Si） ---------- */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.groupScroll}>
+          {ALLOTROPE_GROUPS.map((g) => {
+            const on = g.id === group;
+            return (
+              <Pressable
+                key={g.id}
+                style={[styles.groupChip, on && styles.groupChipOn]}
+                onPress={() => pickGroup(g.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.groupSymbol, on && styles.groupSymbolOn]}>{g.symbol}</Text>
+                <Text style={[styles.groupName, on && styles.groupNameOn]}>{g.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* ---------- 该族内的单质选择 ---------- */}
         <View style={styles.pickRow}>
-          {ALLOTROPES.map((a) => {
+          {items.map((a) => {
             const on = a.id === active;
             return (
               <Pressable
@@ -151,10 +180,10 @@ export default function AllotropeScreen({ onBack }: { onBack: () => void }) {
           </View>
         </View>
 
-        {/* ---------- 三者横向对比 ---------- */}
+        {/* ---------- 同族横向对比 ---------- */}
         <View style={styles.card}>
           <Pressable style={styles.rowBetween} onPress={() => setShowCompare((v) => !v)}>
-            <Text style={styles.cardTitle}>三者横向对比</Text>
+            <Text style={styles.cardTitle}>{groupMeta.name}的同素异形体对比</Text>
             <View style={styles.foldRow}>
               <Text style={styles.foldText}>{showCompare ? '收起' : '展开'}</Text>
               <Ionicons
@@ -171,7 +200,7 @@ export default function AllotropeScreen({ onBack }: { onBack: () => void }) {
                   <View style={styles.thLabel}>
                     <Text style={styles.thLabelText}>对比项</Text>
                   </View>
-                  {ALLOTROPES.map((a) => (
+                  {items.map((a) => (
                     <View key={a.id} style={styles.thCell}>
                       <Text style={[styles.thCellText, a.id === active && styles.thCellTextOn]}>
                         {a.name}
@@ -179,18 +208,18 @@ export default function AllotropeScreen({ onBack }: { onBack: () => void }) {
                     </View>
                   ))}
                 </View>
-                {COMPARE_ROWS.map((r) => (
+                {COMPARE_ROWS[group].map((r) => (
                   <View key={r.label} style={styles.tRow}>
                     <View style={styles.tdLabel}>
                       <Text style={styles.tdLabelText}>{r.label}</Text>
                     </View>
-                    {ALLOTROPES.map((a) => (
+                    {items.map((a) => (
                       <View
                         key={a.id}
                         style={[styles.tdCell, a.id === active && styles.tdCellOn]}
                       >
                         <Text style={[styles.tdText, a.id === active && styles.tdTextOn]}>
-                          {r.values[a.id]}
+                          {r.values[a.id] ?? '—'}
                         </Text>
                       </View>
                     ))}
@@ -200,7 +229,7 @@ export default function AllotropeScreen({ onBack }: { onBack: () => void }) {
             </ScrollView>
           ) : (
             <Text style={styles.bodyText}>
-              同一份对比表：结构型式、作用力、硬度、导电性、熔点、溶解性、用途，点开一眼看完。
+              {`点开一眼看完：${items.map((a) => a.name).join(' / ')} 在结构型式、微粒间作用、性质与用途上的差别。`}
             </Text>
           )}
         </View>
@@ -375,6 +404,25 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 14, paddingTop: 6, gap: 12, paddingBottom: 20 },
   lead: { fontSize: 12.5, color: colors.sub, lineHeight: 20 },
   sectionTitle: { fontSize: 13, fontWeight: '700', color: colors.faint, marginTop: 8 },
+
+  groupScroll: { flexGrow: 0, marginBottom: 2 },
+  groupChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  groupChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  groupSymbol: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  groupSymbolOn: { color: '#FFFFFF' },
+  groupName: { fontSize: 11.5, fontWeight: '600', color: colors.sub },
+  groupNameOn: { color: 'rgba(255,255,255,0.85)' },
 
   pickRow: { flexDirection: 'row', gap: 8 },
   alloBtn: {

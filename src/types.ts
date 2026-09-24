@@ -41,6 +41,17 @@ export interface MoleculeData {
   note?: string;
   atoms?: MolAtom[];
   bonds?: Bond[];
+  /**
+   * 离域大 π 键（如 O₃ 的 Π₃⁴）：多个原子各出一个 p 轨道侧向重叠，
+   * 电子为这些原子共有，不专属某一对原子。
+   * atoms = 参与的原子下标；electrons = 参与的电子总数；per = 各原子贡献的电子数（与 atoms 对齐）
+   */
+  bigpi?: {
+    atoms: number[];
+    electrons: number;
+    per?: number[];
+    label?: string;
+  };
   /** 每个原子在该化合物中的离子电荷（与 atoms 下标对齐；缺省按 0 处理） */
   charges?: number[];
   /** 水溶液酸碱性标注 */
