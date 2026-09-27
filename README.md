@@ -1,6 +1,14 @@
-# 高中化学 3D 课堂（iOS）
+# 数理化 3D 课堂（iOS）
 
-面向高中化学学习的 **3D 交互式** iOS App（Expo / React Native）。核心亮点是把微观粒子「看得见」：
+面向高中数理化学习的 **3D 交互式** iOS App（Expo / React Native）。首页按 **数学 / 物理 / 化学** 分成三个学科频道，每个学科点进去是自己的二级内容页。
+
+| 频道 | 状态 | 内容 |
+| --- | --- | --- |
+| 数学 | 建设中 | 规划模块：函数与图像、平面几何、立体几何、概率与统计 |
+| 物理 | 建设中 | 规划模块：力学、运动学、电与磁、光学与热学 |
+| 化学 | **已开放** | 19 个 3D 结构、6 组反应动画、4 个动手实验（见下） |
+
+化学频道的核心亮点是把微观粒子「看得见」：
 
 - **分子 / 离子 3D 球棍模型**：H₂、O₂、N₂、H₂O、CO₂、CH₄、NH₃、H₂SO₄、C₂H₅OH、CaCO₃、NaOH、NaCl 离子晶体等 19 个结构单元。
 - **原子级下钻视图**：在分子场景轻点任意原子，即可进入该元素的原子结构 —— 红色**质子**与灰色**中子**组成的原子核 + 分层运动的蓝色**电子**（按 K/L/M/N 壳层简化示意）。
@@ -12,7 +20,7 @@
 
 ```
 ┌────────────────────────────── RN 宿主（React Native，iOS/Web/Android） ──┐
-│  App.tsx（Tab 导航） → 各列表页 → SceneScreen（全屏 3D 场景 + 覆盖式 UI）   │
+│  App.tsx（学科首页 → 频道）→ 化学频道 Tab 导航 → 各列表页 → SceneScreen    │
 │                              │                                           │
 │                     Chem3DView（命令重放 / 事件转发）                       │
 │                              │                                           │
@@ -45,7 +53,8 @@
 | `scripts/serve.mjs` | 本地静态预览服务器（默认目录 `dist`、端口 `8787`） |
 | `src/engine/engineHtml.ts` | **自动生成**，勿手改 |
 | `src/components/` | Chem3DView + 平台分文件 WebView 宿主、分子缩略图 |
-| `src/screens/` | 分子 / 反应 / 原子 / 关于 列表页 + 全屏 3D 场景页 |
+| `src/subjects.ts` | 学科频道元数据（名称 / 主题色 / 模块清单 / 是否开放） |
+| `src/screens/` | 学科首页 HomeScreen、建设中频道页 SubjectChannelScreen，化学频道的分子 / 反应 / 原子 / 关于 列表页 + 全屏 3D 场景页 |
 
 ## 快速开始（Web 预览，Windows 可直接用）
 
@@ -101,7 +110,7 @@ open ios/*.xcworkspace
 
 ### 其他注意点
 
-- 修改 `app.json` 中的 `ios.bundleIdentifier`（默认 `com.example.chem3dclassroom`）后再打包上架。
+- 修改 `app.json` 中的 `ios.bundleIdentifier`（默认 `com.rongweiwei.stem3dclassroom`）后再打包上架。
 - `dist/`、`ios/`、`android/` 已加入 `.gitignore`，均为生成产物。
 - Web 端通过 iframe 与引擎通信；原生端通过 `window.ReactNativeWebView.postMessage` 通信，切换平台无需改动引擎代码。
 

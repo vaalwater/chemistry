@@ -5,7 +5,7 @@ import { colors } from '../theme';
 const sections: { title: string; body: string }[] = [
   {
     title: '这款 App 是什么',
-    body: '面向高中化学学习的 3D 交互应用：分子/离子空间结构、原子电子层结构（原子核包含质子与中子）、以及常见化学反应方程式的 3D 动画演示。',
+    body: '数理化 3D 课堂是一款面向高中学习的交互式 App，首页按数学 / 物理 / 化学分成三个学科频道。这里是已开放内容的「化学」频道：分子 / 离子空间结构、原子电子层结构（原子核包含质子与中子）、以及常见化学反应方程式的 3D 动画演示。',
   },
   {
     title: '交互方式',
@@ -36,7 +36,7 @@ export default function AboutScreen() {
       {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.title}>关于</Text>
-        <Text style={styles.subtitle}>高中化学 · 3D 分子课堂</Text>
+        <Text style={styles.subtitle}>数理化课堂 · 化学频道</Text>
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {sections.map((s) => (

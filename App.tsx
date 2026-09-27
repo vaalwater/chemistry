@@ -5,6 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from './src/theme';
 import type { MoleculeData, ReactionDrama, SceneReq } from './src/types';
+import HomeScreen from './src/screens/HomeScreen';
+import SubjectChannelScreen from './src/screens/SubjectChannelScreen';
 import BrowseScreen from './src/screens/BrowseScreen';
 import ReactionsScreen from './src/screens/ReactionsScreen';
 import AboutScreen from './src/screens/AboutScreen';
@@ -12,6 +14,7 @@ import SceneScreen from './src/screens/SceneScreen';
 import HandsOnScreen from './src/screens/HandsOnScreen';
 import RadiusLabScreen from './src/screens/RadiusLabScreen';
 import { LATTICE_LINKS, type RadiusLabEntry } from './src/radius/radiusRule';
+import { subjectOf, type SubjectKey } from './src/subjects';
 
 type TabKey = 'browse' | 'reaction' | 'handson' | 'about';
 
@@ -25,6 +28,8 @@ const TABS: { key: TabKey; label: string; icon: IoniconName; iconOn: IoniconName
 ];
 
 export default function App() {
+  /** 当前学科频道；null = 学科首页 */
+  const [subject, setSubject] = useState<SubjectKey | null>(null);
   const [tab, setTab] = useState<TabKey>('browse');
   const [scene, setScene] = useState<SceneReq | null>(null);
   /** 半径比·配位数实验独立成页（token 用来让同一入口可以重复打开） */
@@ -59,10 +64,28 @@ export default function App() {
 
   const closeLab = useCallback(() => setLab(null), []);
 
+  /** 切换学科：先收起化学的场景页，回到频道首页 */
+  const pickSubject = useCallback((key: SubjectKey) => {
+    setLab(null);
+    setScene(null);
+    setTab('browse');
+    setSubject(key);
+  }, []);
+
+  const backToSubjects = useCallback(() => {
+    setLab(null);
+    setScene(null);
+    setSubject(null);
+  }, []);
+
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
-      {lab ? (
+      {!subject ? (
+        <HomeScreen onPick={pickSubject} />
+      ) : subject !== 'chemistry' ? (
+        <SubjectChannelScreen subject={subjectOf(subject)} onBack={backToSubjects} />
+      ) : lab ? (
         <RadiusLabScreen key={lab.token} entry={lab.entry} onBack={closeLab} />
       ) : scene ? (
         <SceneScreen
@@ -72,27 +95,31 @@ export default function App() {
           onOpenRadiusLab={openRadiusLabFor}
         />
       ) : (
-        <HomeTabs
+        <ChemistryTabs
           tab={tab}
           setTab={setTab}
           openScene={openScene}
           openRadiusLab={openRadiusLab}
+          onExit={backToSubjects}
         />
       )}
     </SafeAreaProvider>
   );
 }
 
-function HomeTabs({
+/** 化学频道：原「高中化学 3D 课堂」的全部内容，作为首页下的二级频道。 */
+function ChemistryTabs({
   tab,
   setTab,
   openScene,
   openRadiusLab,
+  onExit,
 }: {
   tab: TabKey;
   setTab: (t: TabKey) => void;
   openScene: (kind: SceneReq['kind'], id: string, mol?: MoleculeData, reaction?: ReactionDrama) => void;
   openRadiusLab: (entry: RadiusLabEntry) => void;
+  onExit: () => void;
 }) {
   const insets = useSafeAreaInsets();
   // “浏览”tab 内部的分子/原子切换
@@ -142,6 +169,16 @@ function HomeTabs({
         ]}
       >
         <View style={styles.tabBar}>
+          {/* 最左一个入口：回到学科首页（数学 / 物理 / 化学） */}
+          <Pressable
+            style={styles.tabItem}
+            onPress={onExit}
+            accessibilityRole="button"
+            accessibilityLabel="返回学科首页"
+          >
+            <Ionicons name="home-outline" size={23} color={colors.faint} />
+            <Text style={styles.tabLabel}>学科</Text>
+          </Pressable>
           {TABS.map((t) => {
             const active = tab === t.key;
             return (
