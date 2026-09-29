@@ -1,4 +1,5 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadow } from '../theme';
@@ -8,9 +9,11 @@ import type { SubjectMeta } from '../subjects';
 export default function SubjectChannelScreen({
   subject,
   onBack,
+  onOpenModule,
 }: {
   subject: SubjectMeta;
   onBack: () => void;
+  onOpenModule?: (route: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -25,29 +28,59 @@ export default function SubjectChannelScreen({
       </View>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={[styles.notice, { backgroundColor: subject.tint }]}>
-          <Ionicons name="hammer-outline" size={18} color={subject.color} />
+          <Ionicons name={subject.ready ? 'checkmark-circle-outline' : 'hammer-outline'} size={18} color={subject.color} />
           <Text style={[styles.noticeText, { color: subject.color }]}>
-            这个频道还在搭建中 —— 下面是规划中的模块，上线后会和化学一样，点进去即可交互。
+            {subject.ready
+              ? '标着「可进入」的模块已经能直接用；其余模块还在搭建中，上线后同样是点进去即可交互。'
+              : '这个频道还在搭建中 —— 下面是规划中的模块，上线后点进去即可交互。'}
           </Text>
         </View>
 
-        {subject.modules.map((m) => (
-          <View key={m.name} style={styles.card}>
-            <View style={styles.cardHead}>
-              <View style={[styles.iconWrap, { backgroundColor: subject.tint }]}>
-                <Ionicons name="ellipse-outline" size={16} color={subject.color} />
+        {subject.modules.map((m) => {
+          const openable = !!m.done && !!m.route && !!onOpenModule;
+          const body = (
+            <>
+              <View style={styles.cardHead}>
+                <View style={[styles.iconWrap, { backgroundColor: subject.tint }]}>
+                  <Ionicons
+                    name={openable ? 'cube-outline' : 'ellipse-outline'}
+                    size={16}
+                    color={subject.color}
+                  />
+                </View>
+                <Text style={styles.cardTitle}>{m.name}</Text>
+                <View style={[styles.badge, openable && styles.badgeOn]}>
+                  <Text style={[styles.badgeText, openable && styles.badgeTextOn]}>
+                    {openable ? '可进入' : '规划'}
+                  </Text>
+                </View>
+                {openable ? <Ionicons name="chevron-forward" size={16} color={colors.faint} /> : null}
               </View>
-              <Text style={styles.cardTitle}>{m.name}</Text>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>规划</Text>
-              </View>
+              <Text style={styles.cardDesc}>{m.desc}</Text>
+            </>
+          );
+          return openable ? (
+            <Pressable
+              key={m.name}
+              style={styles.card}
+              onPress={() => onOpenModule && onOpenModule(m.route as string)}
+              accessibilityRole="button"
+              accessibilityLabel={`进入${m.name}模块`}
+            >
+              {body}
+              <Text style={styles.enter}>进入模块</Text>
+            </Pressable>
+          ) : (
+            <View key={m.name} style={styles.card}>
+              {body}
             </View>
-            <Text style={styles.cardDesc}>{m.desc}</Text>
-          </View>
-        ))}
+          );
+        })}
 
         <Text style={styles.foot}>
-          想先看点实在的？回学科首页进「化学」，里面有 3D 分子、反应动画和动手实验。
+          {subject.ready
+            ? '想看更完整的内容？回学科首页进「化学」，里面有 3D 分子、反应动画和动手实验。'
+            : '想先看点实在的？回学科首页进「化学」或「数学」，里面已经有可以上手的内容。'}
         </Text>
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -95,6 +128,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2F8',
   },
   badgeText: { fontSize: 10.5, fontWeight: '700', color: colors.faint },
+  badgeOn: { backgroundColor: '#E6F6EF' },
+  badgeTextOn: { color: colors.green },
   cardDesc: { fontSize: 13, lineHeight: 20, color: colors.sub, marginTop: 8 },
+  enter: { fontSize: 12.5, fontWeight: '700', color: colors.green, marginTop: 10 },
   foot: { fontSize: 12, color: colors.faint, textAlign: 'center', marginTop: 8, lineHeight: 18 },
 });

@@ -24,7 +24,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "build:engine": "node scripts/build-engine.mjs",
+    "build:engine": "node scripts/build-engine.mjs && node scripts/build-geo.mjs && node scripts/build-phys.mjs",
+    "build:geo": "node scripts/build-geo.mjs",
+    "build:phys": "node scripts/build-phys.mjs",
     "typecheck": "tsc --noEmit"
   },
   "private": true

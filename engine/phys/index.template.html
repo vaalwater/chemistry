@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>物理 · 电磁学 3D</title>
+<style>
+@@CSS@@
+</style>
+<style>
+  /* ---- 物理引擎布局：full = 只 3D，split = 上 3D 下图表，panel = 只图表 ---- */
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(125% 90% at 50% 0%, #17244f 0%, #0a1026 55%, #05080f 100%);
+  }
+  #app {
+    position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column;
+    background: radial-gradient(130% 95% at 50% 0%, #1a2a5e 0%, #0c1330 52%, #060a18 100%);
+  }
+  #view3d { position: relative; flex: 1 1 auto; min-height: 0; }
+  #view3d canvas { position: absolute; left: 0; top: 0; }
+  #panel2d {
+    position: relative; flex: 0 0 44%; display: none;
+    align-items: stretch; justify-content: stretch;
+    border-top: 1px solid rgba(120, 160, 220, 0.16);
+  }
+  #app.split #view3d { flex: 0 0 56%; }
+  #app.split #panel2d { display: flex; }
+  #app.panel #view3d { display: none; }
+  #app.panel #panel2d { flex: 1 1 auto; display: flex; }
+  #chart2d { position: absolute; left: 0; top: 0; }
+
+  /* ---- 探针读数 ---- */
+  #probeHud {
+    position: fixed; left: 10px; bottom: 10px; display: none; max-width: 62%;
+    background: rgba(8, 14, 30, 0.82);
+    border: 1px solid rgba(120, 160, 220, 0.28);
+    border-radius: 12px; padding: 8px 12px;
+    font-size: 12px; line-height: 1.55; color: #eaf2ff;
+  }
+  #probeHud.show { display: block; }
+  #probeHud b { display: block; font-size: 14.5px; color: #ffd166; }
+  #probeHud span { display: block; color: #9fb4d8; font-size: 11px; }
+
+  /* ---- 颜色图例 ---- */
+  #legend {
+    position: fixed; right: 10px; bottom: 10px; display: none;
+    background: rgba(8, 14, 30, 0.75);
+    border: 1px solid rgba(120, 160, 220, 0.22);
+    border-radius: 10px; padding: 6px 9px;
+  }
+  #legend.show { display: block; }
+  .lg-row { display: flex; align-items: center; }
+  .lg-bar { display: block; width: 104px; height: 8px; border-radius: 4px; }
+  .lg-t { font-size: 10px; color: #9fb4d8; margin-top: 3px; }
+  .lg-t.right { margin-left: auto; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div id="view3d"></div>
+    <div id="panel2d"><canvas id="chart2d"></canvas></div>
+  </div>
+
+  <div id="probeHud"></div>
+  <div id="legend"></div>
+
+  <div id="boot">
+    <div class="boot-inner">
+      <div class="atom-mark">
+        <span class="core"></span>
+        <i class="e1"></i><i class="e2"></i><i class="e3"></i>
+      </div>
+      <div class="boot-title">电磁场空间</div>
+      <div class="boot-sub">正在准备场线…</div>
+    </div>
+  </div>
+
+  <div id="hint" class="hud"><span id="hintText"></span></div>
+  <div id="errMsg" class="hud error"></div>
+
+  <script>
+@@THREE@@
+  </script>
+  <script>
+@@PHYS@@
+  </script>
+  <script>
+@@FIELDS@@
+  </script>
+  <script>
+@@SCENES@@
+  </script>
+</body>
+</html>

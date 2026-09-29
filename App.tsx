@@ -7,6 +7,8 @@ import { colors } from './src/theme';
 import type { MoleculeData, ReactionDrama, SceneReq } from './src/types';
 import HomeScreen from './src/screens/HomeScreen';
 import SubjectChannelScreen from './src/screens/SubjectChannelScreen';
+import SolidGeoHomeScreen from './src/screens/geo/SolidGeoHomeScreen';
+import EmHomeScreen from './src/screens/physics/EmHomeScreen';
 import BrowseScreen from './src/screens/BrowseScreen';
 import ReactionsScreen from './src/screens/ReactionsScreen';
 import AboutScreen from './src/screens/AboutScreen';
@@ -30,6 +32,8 @@ const TABS: { key: TabKey; label: string; icon: IoniconName; iconOn: IoniconName
 export default function App() {
   /** 当前学科频道；null = 学科首页 */
   const [subject, setSubject] = useState<SubjectKey | null>(null);
+  /** 频道内的子模块（如数学 → 立体几何） */
+  const [moduleKey, setModuleKey] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>('browse');
   const [scene, setScene] = useState<SceneReq | null>(null);
   /** 半径比·配位数实验独立成页（token 用来让同一入口可以重复打开） */
@@ -69,22 +73,35 @@ export default function App() {
     setLab(null);
     setScene(null);
     setTab('browse');
+    setModuleKey(null);
     setSubject(key);
   }, []);
 
   const backToSubjects = useCallback(() => {
     setLab(null);
     setScene(null);
+    setModuleKey(null);
     setSubject(null);
   }, []);
+
+  const openModule = useCallback((route: string) => setModuleKey(route), []);
+  const closeModule = useCallback(() => setModuleKey(null), []);
 
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {!subject ? (
         <HomeScreen onPick={pickSubject} />
+      ) : moduleKey === 'em' ? (
+        <EmHomeScreen onBack={closeModule} />
+      ) : moduleKey === 'geo' ? (
+        <SolidGeoHomeScreen onBack={closeModule} />
       ) : subject !== 'chemistry' ? (
-        <SubjectChannelScreen subject={subjectOf(subject)} onBack={backToSubjects} />
+        <SubjectChannelScreen
+          subject={subjectOf(subject)}
+          onBack={backToSubjects}
+          onOpenModule={openModule}
+        />
       ) : lab ? (
         <RadiusLabScreen key={lab.token} entry={lab.entry} onBack={closeLab} />
       ) : scene ? (

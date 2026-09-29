@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>立体几何 3D</title>
+<style>
+@@CSS@@
+</style>
+<style>
+  /* 几何引擎布局：上方 3D 实体，下方 2D 直观图（split 模式下） */
+  #app { display: flex; flex-direction: column; }
+  #view3d { position: relative; flex: 1 1 auto; min-height: 0; }
+  #view3d canvas { position: absolute; left: 0; top: 0; }
+  #panel2d {
+    position: relative; flex: 0 0 44%; display: none;
+    align-items: center; justify-content: center;
+    border-top: 1px solid #e3ebf5;
+    background: rgba(255, 255, 255, 0.5);
+  }
+  #app.split #view3d { flex: 0 0 56%; }
+  #app.split #panel2d { display: flex; }
+  #panel2d canvas { position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div id="view3d"></div>
+    <div id="panel2d"></div>
+  </div>
+
+  <div id="boot">
+    <div class="boot-inner">
+      <div class="atom-mark">
+        <span class="core"></span>
+        <i class="e1"></i><i class="e2"></i><i class="e3"></i>
+      </div>
+      <div class="boot-title">立体几何空间</div>
+      <div class="boot-sub">正在准备几何体…</div>
+    </div>
+  </div>
+
+  <div id="hint" class="hud"><span id="hintText"></span></div>
+  <div id="errMsg" class="hud error"></div>
+
+  <script>
+@@THREE@@
+  </script>
+  <script>
+@@ENGINE@@
+  </script>
+  <script>
+@@SCENES@@
+  </script>
+</body>
+</html>

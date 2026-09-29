@@ -25,43 +25,11 @@ export type SubjectMeta = {
   icon: IconName;
   /** 是否已开放内容 */
   ready: boolean;
-  /** 频道内的模块清单（ready 为 false 时表示规划中） */
-  modules: { name: string; desc: string }[];
+  /** 频道内的模块清单（done 为 true 表示可进入，route 是子频道路由） */
+  modules: { name: string; desc: string; done?: boolean; route?: string }[];
 };
 
-export const SUBJECTS: SubjectMeta[] = [
-  {
-    key: 'math',
-    name: '数学',
-    tagline: '函数、几何、概率 —— 把抽象关系画出来看',
-    stats: '规划中',
-    color: '#8a63d2',
-    tint: '#F1ECFB',
-    icon: 'analytics-outline',
-    ready: false,
-    modules: [
-      { name: '函数与图像', desc: '一次 / 二次 / 指数 / 三角函数，拖动参数看曲线怎么变' },
-      { name: '平面几何', desc: '三角形、圆与相似全等，图形随拖动实时重画' },
-      { name: '立体几何', desc: '空间向量与截面，3D 旋转看棱柱、棱锥、球' },
-      { name: '概率与统计', desc: '掷骰子、抽球做实验，频率如何收敛到概率' },
-    ],
-  },
-  {
-    key: 'physics',
-    name: '物理',
-    tagline: '受力、运动、电路 —— 让过程动起来',
-    stats: '规划中',
-    color: '#e2822f',
-    tint: '#FDF0E3',
-    icon: 'rocket-outline',
-    ready: false,
-    modules: [
-      { name: '力学', desc: '受力分析与斜面、滑轮，箭头长短即力的大小' },
-      { name: '运动学', desc: 'v-t / s-t 图像与小车动画同步，看见加速度' },
-      { name: '电与磁', desc: '串并联电路、电表读数，电流沿导线流动' },
-      { name: '光学与热学', desc: '反射折射光路、物态变化与热传递' },
-    ],
-  },
+const SUBJECTS_RAW: SubjectMeta[] = [
   {
     key: 'chemistry',
     name: '化学',
@@ -78,7 +46,54 @@ export const SUBJECTS: SubjectMeta[] = [
       { name: '关于', desc: '交互说明、比例尺声明与打包方式' },
     ],
   },
+  {
+    key: 'math',
+    name: '数学',
+    tagline: '立体几何、函数、概率 —— 把抽象关系画出来看',
+    stats: '立体几何已上线 · 其余建设中',
+    color: '#8a63d2',
+    tint: '#F1ECFB',
+    icon: 'analytics-outline',
+    ready: true,
+    modules: [
+      {
+        name: '立体几何',
+        desc: '3D 实体 ↔ 斜二测直观图联动、定理实验室、空间角三步定位、体积公式推导剧场',
+        done: true,
+        route: 'geo',
+      },
+      { name: '函数与图像', desc: '一次 / 二次 / 指数 / 三角函数，拖动参数看曲线怎么变' },
+      { name: '平面几何', desc: '三角形、圆与相似全等，图形随拖动实时重画' },
+      { name: '概率与统计', desc: '掷骰子、抽球做实验，频率如何收敛到概率' },
+    ],
+  },
+  {
+    key: 'physics',
+    name: '物理',
+    tagline: '场、感应、交流电 —— 把看不见的场变成能摸的对象',
+    stats: '电磁学已上线 · 其余建设中',
+    color: '#e2822f',
+    tint: '#FDF0E3',
+    icon: 'rocket-outline',
+    ready: true,
+    modules: [
+      {
+        name: '电磁学',
+        desc: '3D 场线与流光粒子、场强探针、等势面；三方向定则训练、电磁感应探究台、交流电波形实验室',
+        done: true,
+        route: 'em',
+      },
+      { name: '力学', desc: '受力分析与斜面、滑轮，箭头长短即力的大小' },
+      { name: '运动学', desc: 'v-t / s-t 图像与小车动画同步，看见加速度' },
+      { name: '光学与热学', desc: '反射折射光路、物态变化与热传递' },
+    ],
+  },
 ];
+
+/** 展示顺序：已完成的学科卡片置顶，建设中的靠后 */
+export const SUBJECTS: SubjectMeta[] = SUBJECTS_RAW.slice().sort(
+  (a, b) => Number(b.ready) - Number(a.ready)
+);
 
 export function subjectOf(key: SubjectKey): SubjectMeta {
   return SUBJECTS.find((s) => s.key === key) ?? SUBJECTS[SUBJECTS.length - 1];

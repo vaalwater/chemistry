@@ -10,14 +10,14 @@ export default function HomeScreen({ onPick }: { onPick: (key: SubjectKey) => vo
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-        <Text style={styles.title}>数理化课堂</Text>
+        <Text style={styles.title}>35中数理化</Text>
         <Text style={styles.subtitle}>数学 · 物理 · 化学，选一科进去看</Text>
       </View>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {SUBJECTS.map((s) => (
           <SubjectCard key={s.key} subject={s} onPress={() => onPick(s.key)} />
         ))}
-        <Text style={styles.foot}>化学频道已开放，数学与物理的内容正在建设中。</Text>
+        <Text style={styles.foot}>化学、数学立体几何、物理电磁学已开放；其余模块陆续上线。</Text>
         <View style={{ height: 24 }} />
       </ScrollView>
     </View>

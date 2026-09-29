@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "数理化 3D 课堂",
-    "slug": "stem3d-classroom",
+    "name": "35中数理化",
+    "slug": "chem3d-classroom",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rongweiwei.stem3dclassroom",
+      "bundleIdentifier": "com.rongweiwei.chem3dclassroom",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -27,7 +27,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.example.stem3dclassroom"
+      "package": "com.example.chem3dclassroom"
     },
     "web": {
       "favicon": "./assets/favicon.png"
