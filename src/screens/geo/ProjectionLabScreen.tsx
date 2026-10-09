@@ -47,7 +47,7 @@ export default function ProjectionLabScreen({ onBack }: { onBack: () => void }) 
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
           <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
-          <Text style={styles.backText}>立体几何</Text>
+          <Text style={styles.backText}>返回</Text>
         </Pressable>
         <Text style={styles.title}>立体 ↔ 直观图</Text>
       </View>

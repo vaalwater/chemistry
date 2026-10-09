@@ -69,7 +69,7 @@ export default function SolidGeoHomeScreen({ onBack }: { onBack: () => void }) {
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
           <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
-          <Text style={styles.backText}>数学</Text>
+          <Text style={styles.backText}>返回</Text>
         </Pressable>
         <Text style={styles.title}>立体几何</Text>
         <Text style={styles.subtitle}>四个实验室，专治“脑子里建不起模型”</Text>

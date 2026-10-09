@@ -76,6 +76,7 @@ export default function RatioSlider({ value, min, max, marks, showMarks, onChang
         <View
           ref={trackRef}
           style={styles.track}
+          testID="ratio-slider-track"
           onLayout={(e) => {
             const w = e.nativeEvent.layout.width;
             if (w > 0) {

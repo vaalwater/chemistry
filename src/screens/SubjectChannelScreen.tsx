@@ -8,21 +8,15 @@ import type { SubjectMeta } from '../subjects';
 /** 尚未开放内容的学科频道：说明现状 + 列出规划中的模块，结构与化学频道一致。 */
 export default function SubjectChannelScreen({
   subject,
-  onBack,
   onOpenModule,
 }: {
   subject: SubjectMeta;
-  onBack: () => void;
   onOpenModule?: (route: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
-          <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
-          <Text style={styles.backText}>学科</Text>
-        </Pressable>
         <Text style={[styles.title, { color: subject.color }]}>{subject.name}</Text>
         <Text style={styles.subtitle}>{subject.tagline}</Text>
       </View>
@@ -31,7 +25,7 @@ export default function SubjectChannelScreen({
           <Ionicons name={subject.ready ? 'checkmark-circle-outline' : 'hammer-outline'} size={18} color={subject.color} />
           <Text style={[styles.noticeText, { color: subject.color }]}>
             {subject.ready
-              ? '标着「可进入」的模块已经能直接用；其余模块还在搭建中，上线后同样是点进去即可交互。'
+              ? '标着「可进入」的模块已经能直接用；灰掉的是还在搭建中的模块，上线后同样是点进去即可交互。'
               : '这个频道还在搭建中 —— 下面是规划中的模块，上线后点进去即可交互。'}
           </Text>
         </View>
@@ -41,22 +35,22 @@ export default function SubjectChannelScreen({
           const body = (
             <>
               <View style={styles.cardHead}>
-                <View style={[styles.iconWrap, { backgroundColor: subject.tint }]}>
+                <View style={[styles.iconWrap, openable ? { backgroundColor: subject.tint } : styles.iconWrapOff]}>
                   <Ionicons
                     name={openable ? 'cube-outline' : 'ellipse-outline'}
                     size={16}
-                    color={subject.color}
+                    color={openable ? subject.color : colors.faint}
                   />
                 </View>
-                <Text style={styles.cardTitle}>{m.name}</Text>
+                <Text style={[styles.cardTitle, !openable && styles.cardTitleOff]}>{m.name}</Text>
                 <View style={[styles.badge, openable && styles.badgeOn]}>
                   <Text style={[styles.badgeText, openable && styles.badgeTextOn]}>
-                    {openable ? '可进入' : '规划'}
+                    {openable ? '可进入' : '建设中'}
                   </Text>
                 </View>
                 {openable ? <Ionicons name="chevron-forward" size={16} color={colors.faint} /> : null}
               </View>
-              <Text style={styles.cardDesc}>{m.desc}</Text>
+              <Text style={[styles.cardDesc, !openable && styles.cardDescOff]}>{m.desc}</Text>
             </>
           );
           return openable ? (
@@ -71,8 +65,15 @@ export default function SubjectChannelScreen({
               <Text style={styles.enter}>进入模块</Text>
             </Pressable>
           ) : (
-            <View key={m.name} style={styles.card}>
+            // 还没做完的模块：整张卡灰掉，一眼就能看出点不动
+            <View
+              key={m.name}
+              style={[styles.card, styles.cardOff]}
+              accessibilityRole="none"
+              accessibilityState={{ disabled: true }}
+            >
               {body}
+              <Text style={styles.enterOff}>建设中 · 还没开放</Text>
             </View>
           );
         })}
@@ -91,8 +92,6 @@ export default function SubjectChannelScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 16, paddingBottom: 10 },
-  backBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: 8 },
-  backText: { fontSize: 14, color: colors.inkSoft, fontWeight: '600', marginLeft: 2 },
   title: { fontSize: 30, fontWeight: '800' },
   subtitle: { fontSize: 13, color: colors.sub, marginTop: 6 },
   body: { paddingHorizontal: 14, paddingTop: 4 },
@@ -120,7 +119,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 10,
   },
+  cardOff: { backgroundColor: '#F2F3F6', opacity: 0.72 },
+  iconWrapOff: { backgroundColor: '#E7E9EE' },
   cardTitle: { flex: 1, fontSize: 15.5, fontWeight: '800', color: colors.ink },
+  cardTitleOff: { color: '#9AA3B2' },
+  cardDescOff: { color: '#A6AEBB' },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -132,5 +135,6 @@ const styles = StyleSheet.create({
   badgeTextOn: { color: colors.green },
   cardDesc: { fontSize: 13, lineHeight: 20, color: colors.sub, marginTop: 8 },
   enter: { fontSize: 12.5, fontWeight: '700', color: colors.green, marginTop: 10 },
+  enterOff: { fontSize: 12.5, fontWeight: '700', color: '#A6AEBB', marginTop: 10 },
   foot: { fontSize: 12, color: colors.faint, textAlign: 'center', marginTop: 8, lineHeight: 18 },
 });

@@ -1,14 +1,12 @@
 import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { colors } from './src/theme';
 import type { MoleculeData, ReactionDrama, SceneReq } from './src/types';
+import { colors } from './src/theme';
+import ChannelTabBar, { type ChannelTabItem } from './src/components/ChannelTabBar';
 import HomeScreen from './src/screens/HomeScreen';
-import SubjectChannelScreen from './src/screens/SubjectChannelScreen';
-import SolidGeoHomeScreen from './src/screens/geo/SolidGeoHomeScreen';
-import EmHomeScreen from './src/screens/physics/EmHomeScreen';
+import SubjectTabs from './src/screens/SubjectTabs';
 import BrowseScreen from './src/screens/BrowseScreen';
 import ReactionsScreen from './src/screens/ReactionsScreen';
 import AboutScreen from './src/screens/AboutScreen';
@@ -20,9 +18,7 @@ import { subjectOf, type SubjectKey } from './src/subjects';
 
 type TabKey = 'browse' | 'reaction' | 'handson' | 'about';
 
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
-
-const TABS: { key: TabKey; label: string; icon: IoniconName; iconOn: IoniconName }[] = [
+const TABS: ChannelTabItem[] = [
   { key: 'browse', label: '浏览', icon: 'grid-outline', iconOn: 'grid' },
   { key: 'reaction', label: '反应', icon: 'git-compare-outline', iconOn: 'git-compare' },
   { key: 'handson', label: '动手', icon: 'construct-outline', iconOn: 'construct' },
@@ -84,23 +80,18 @@ export default function App() {
     setSubject(null);
   }, []);
 
-  const openModule = useCallback((route: string) => setModuleKey(route), []);
-  const closeModule = useCallback(() => setModuleKey(null), []);
-
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {!subject ? (
         <HomeScreen onPick={pickSubject} />
-      ) : moduleKey === 'em' ? (
-        <EmHomeScreen onBack={closeModule} />
-      ) : moduleKey === 'geo' ? (
-        <SolidGeoHomeScreen onBack={closeModule} />
       ) : subject !== 'chemistry' ? (
-        <SubjectChannelScreen
+        // 数学 / 物理：内容页 + 底部导航（与化学同一条导航条）
+        <SubjectTabs
           subject={subjectOf(subject)}
-          onBack={backToSubjects}
-          onOpenModule={openModule}
+          moduleKey={moduleKey}
+          setModuleKey={setModuleKey}
+          onExit={backToSubjects}
         />
       ) : lab ? (
         <RadiusLabScreen key={lab.token} entry={lab.entry} onBack={closeLab} />
@@ -138,7 +129,6 @@ function ChemistryTabs({
   openRadiusLab: (entry: RadiusLabEntry) => void;
   onExit: () => void;
 }) {
-  const insets = useSafeAreaInsets();
   // “浏览”tab 内部的分子/原子切换
   const [browseKey, setBrowseKey] = useState<string>('molecules');
 
@@ -179,46 +169,12 @@ function ChemistryTabs({
         {tab === 'about' && <AboutScreen />}
       </View>
 
-      <View
-        style={[
-          styles.tabBarWrap,
-          { paddingBottom: Math.max(insets.bottom, 8) },
-        ]}
-      >
-        <View style={styles.tabBar}>
-          {/* 最左一个入口：回到学科首页（数学 / 物理 / 化学） */}
-          <Pressable
-            style={styles.tabItem}
-            onPress={onExit}
-            accessibilityRole="button"
-            accessibilityLabel="返回学科首页"
-          >
-            <Ionicons name="home-outline" size={23} color={colors.faint} />
-            <Text style={styles.tabLabel}>学科</Text>
-          </Pressable>
-          {TABS.map((t) => {
-            const active = tab === t.key;
-            return (
-              <Pressable
-                key={t.key}
-                style={styles.tabItem}
-                onPress={() => setTab(t.key)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-              >
-                <Ionicons
-                  name={active ? t.iconOn : t.icon}
-                  size={23}
-                  color={active ? colors.accent : colors.faint}
-                />
-                <Text style={[styles.tabLabel, active && styles.tabLabelOn]}>
-                  {t.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      <ChannelTabBar
+        items={TABS}
+        active={tab}
+        onPress={(k) => setTab(k as TabKey)}
+        onHome={onExit}
+      />
     </View>
   );
 }
@@ -226,27 +182,4 @@ function ChemistryTabs({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { flex: 1 },
-  tabBarWrap: {
-    backgroundColor: 'rgba(252,254,255,0.98)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    height: 56,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabLabel: {
-    fontSize: 10.5,
-    color: colors.faint,
-    marginTop: 3,
-    fontWeight: '600',
-  },
-  tabLabelOn: {
-    color: colors.accent,
-  },
 });

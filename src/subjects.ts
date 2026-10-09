@@ -49,19 +49,32 @@ const SUBJECTS_RAW: SubjectMeta[] = [
   {
     key: 'math',
     name: '数学',
-    tagline: '立体几何、函数、概率 —— 把抽象关系画出来看',
-    stats: '立体几何已上线 · 其余建设中',
+    tagline: '集合、不等式、最值、立体几何 —— 把抽象关系画出来看',
+    stats: '集合 + 立体几何 + 最值 + 动手已上线 · 其余建设中',
     color: '#8a63d2',
     tint: '#F1ECFB',
     icon: 'analytics-outline',
     ready: true,
     modules: [
       {
+        name: '集合',
+        desc: '一页看懂「集合 · 不等式 · 韦达定理」：把不等式画成函数曲线看解的范围，再用参数地图走一遍分类讨论，推理的每一步都能看到它站不站得住',
+        done: true,
+        route: 'set',
+      },
+      {
         name: '立体几何',
         desc: '3D 实体 ↔ 斜二测直观图联动、定理实验室、空间角三步定位、体积公式推导剧场',
         done: true,
         route: 'geo',
       },
+      {
+        name: '最值',
+        desc: '均值不等式（x + 1/x ≥ 2）和「ax + by = c，求 1/x + 1/y」是同一道题：等高线推到和约束曲线相切的那一刻就是极值 —— 由此看懂拉格朗日乘数法的几何本质和 λ（影子价格）',
+        done: true,
+        route: 'extreme',
+      },
+      // 「动手」已从模块清单拆出来，直接挂在数学频道底部导航上（见 SubjectTabs）
       { name: '函数与图像', desc: '一次 / 二次 / 指数 / 三角函数，拖动参数看曲线怎么变' },
       { name: '平面几何', desc: '三角形、圆与相似全等，图形随拖动实时重画' },
       { name: '概率与统计', desc: '掷骰子、抽球做实验，频率如何收敛到概率' },

@@ -69,7 +69,7 @@ export default function EmHomeScreen({ onBack }: { onBack: () => void }) {
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
           <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
-          <Text style={styles.backText}>物理</Text>
+          <Text style={styles.backText}>返回</Text>
         </Pressable>
         <Text style={styles.title}>电磁学</Text>
         <Text style={styles.subtitle}>四个实验室，把"看不见的场"变成能摸的对象</Text>
