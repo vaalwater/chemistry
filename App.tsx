@@ -16,13 +16,13 @@ import RadiusLabScreen from './src/screens/RadiusLabScreen';
 import { LATTICE_LINKS, type RadiusLabEntry } from './src/radius/radiusRule';
 import { subjectOf, type SubjectKey } from './src/subjects';
 
-type TabKey = 'browse' | 'reaction' | 'handson' | 'about';
+type TabKey = 'browse' | 'reaction' | 'handson';
 
+/** 化学频道底部导航：只放频道内的功能区，「关于」移到学科首页做入口。 */
 const TABS: ChannelTabItem[] = [
   { key: 'browse', label: '浏览', icon: 'grid-outline', iconOn: 'grid' },
   { key: 'reaction', label: '反应', icon: 'git-compare-outline', iconOn: 'git-compare' },
   { key: 'handson', label: '动手', icon: 'construct-outline', iconOn: 'construct' },
-  { key: 'about', label: '关于', icon: 'information-circle-outline', iconOn: 'information-circle' },
 ];
 
 export default function App() {
@@ -31,6 +31,8 @@ export default function App() {
   /** 频道内的子模块（如数学 → 立体几何） */
   const [moduleKey, setModuleKey] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>('browse');
+  /** 「关于」页：从学科首页进入，不再占用化学频道的底部导航 */
+  const [showAbout, setShowAbout] = useState(false);
   const [scene, setScene] = useState<SceneReq | null>(null);
   /** 半径比·配位数实验独立成页（token 用来让同一入口可以重复打开） */
   const [lab, setLab] = useState<{ entry: RadiusLabEntry; token: number } | null>(null);
@@ -84,7 +86,11 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {!subject ? (
-        <HomeScreen onPick={pickSubject} />
+        showAbout ? (
+          <AboutScreen onBack={() => setShowAbout(false)} />
+        ) : (
+          <HomeScreen onPick={pickSubject} onOpenAbout={() => setShowAbout(true)} />
+        )
       ) : subject !== 'chemistry' ? (
         // 数学 / 物理：内容页 + 底部导航（与化学同一条导航条）
         <SubjectTabs
@@ -166,7 +172,6 @@ function ChemistryTabs({
         )}
         {tab === 'reaction' && <ReactionsScreen onPlayReaction={playReaction} />}
         {tab === 'handson' && <HandsOnScreen onOpenRadiusLab={openRadiusLab} />}
-        {tab === 'about' && <AboutScreen />}
       </View>
 
       <ChannelTabBar

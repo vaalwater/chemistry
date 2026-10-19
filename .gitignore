@@ -49,3 +49,7 @@ yarn-error.*
 # local scratch/debug artifacts (temp web builds, ad-hoc servers)
 tmp_*/
 tmp_*.cjs
+
+# browser automation leftovers
+.playwright-cli/
+setlab.png

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>酸碱性 · 水溶液里的离子</title>
+<style>
+@@CSS@@
+</style>
+<style>
+  /* 酸碱引擎：画布为主，无图表 */
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  #view3d { position: absolute; inset: 0; }
+  #view3d canvas { position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div id="view3d"></div>
+  </div>
+  <div id="hint" class="hud"><span id="hintText"></span></div>
+  <div id="errMsg" class="hud error"></div>
+  <div id="boot">
+    <div class="boot-inner">
+      <div class="atom-mark">
+        <span class="core"></span>
+        <i class="e1"></i><i class="e2"></i><i class="e3"></i>
+      </div>
+      <div class="boot-title">水溶液</div>
+      <div class="boot-sub">正在准备粒子…</div>
+    </div>
+  </div>
+  <script>
+@@THREE@@
+  </script>
+  <script>
+@@ACID@@
+  </script>
+</body>
+</html>

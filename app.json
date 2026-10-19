@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "35中数理化",
+    "name": "理科3D视界",
     "slug": "chem3d-classroom",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F1F6FD",
     "splash": {

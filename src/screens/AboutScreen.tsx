@@ -1,11 +1,12 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
 
 const sections: { title: string; body: string }[] = [
   {
     title: '这款 App 是什么',
-    body: '35中数理化是一款面向高中学习的交互式 App，首页按数学 / 物理 / 化学分成三个学科频道。这里是内容最完整的「化学」频道：分子 / 离子空间结构、原子电子层结构（原子核包含质子与中子）、以及常见化学反应方程式的 3D 动画演示。',
+    body: '理科3D视界是一款面向高中学习的交互式 App，首页按数学 / 物理 / 化学分成三个学科频道，目前「化学」频道内容最完整：分子 / 离子空间结构、原子电子层结构（原子核包含质子与中子）、以及常见化学反应方程式的 3D 动画演示。',
   },
   {
     title: '交互方式',
@@ -29,14 +30,18 @@ const sections: { title: string; body: string }[] = [
   },
 ];
 
-export default function AboutScreen() {
+export default function AboutScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={styles.container}>
       {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
+          <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
+          <Text style={styles.backText}>返回</Text>
+        </Pressable>
         <Text style={styles.title}>关于</Text>
-        <Text style={styles.subtitle}>35中数理化 · 化学频道</Text>
+        <Text style={styles.subtitle}>理科3D视界 · 数学 / 物理 / 化学</Text>
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {sections.map((s) => (
@@ -54,6 +59,8 @@ export default function AboutScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8 },
+  backBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: 8 },
+  backText: { fontSize: 14, color: colors.inkSoft, fontWeight: '600', marginLeft: 2 },
   title: { fontSize: 30, fontWeight: '800', color: colors.ink },
   subtitle: { fontSize: 13, color: colors.sub, marginTop: 6 },
   scroll: { paddingHorizontal: 14, paddingTop: 6 },

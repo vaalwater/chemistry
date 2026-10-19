@@ -5,18 +5,30 @@ import { colors, shadow } from '../theme';
 import { SUBJECTS, type SubjectKey, type SubjectMeta } from '../subjects';
 
 /** 首页：数学 / 物理 / 化学 三个学科卡片，点进去是各自的二级频道。 */
-export default function HomeScreen({ onPick }: { onPick: (key: SubjectKey) => void }) {
+export default function HomeScreen({
+  onPick,
+  onOpenAbout,
+}: {
+  onPick: (key: SubjectKey) => void;
+  onOpenAbout: () => void;
+}) {
   const insets = useSafeAreaInsets();
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-        <Text style={styles.title}>35中数理化</Text>
+        <Text style={styles.title}>理科3D视界</Text>
         <Text style={styles.subtitle}>数学 · 物理 · 化学，选一科进去看</Text>
       </View>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {SUBJECTS.map((s) => (
           <SubjectCard key={s.key} subject={s} onPress={() => onPick(s.key)} />
         ))}
+        {/* 「关于」不是学科，不做成同级卡片：这里用一行轻量链接，避免抢学科卡片的视觉权重 */}
+        <Pressable style={styles.aboutLink} onPress={onOpenAbout} accessibilityRole="button">
+          <Ionicons name="information-circle-outline" size={16} color={colors.sub} />
+          <Text style={styles.aboutLinkText}>关于本 App</Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.faint} />
+        </Pressable>
         <Text style={styles.foot}>化学、数学立体几何、物理电磁学已开放；其余模块陆续上线。</Text>
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -97,5 +109,16 @@ const styles = StyleSheet.create({
   cardTagline: { fontSize: 12.5, lineHeight: 18, color: colors.sub, marginTop: 5 },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 7 },
   cardStats: { fontSize: 11.5, color: colors.sub, marginLeft: 5, fontWeight: '600' },
-  foot: { fontSize: 12, color: colors.faint, textAlign: 'center', marginTop: 6 },
+  aboutLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 4,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+  },
+  aboutLinkText: { fontSize: 12.5, fontWeight: '700', color: colors.sub, marginLeft: 6, marginRight: 2 },
+  foot: { fontSize: 12, color: colors.faint, textAlign: 'center', marginTop: 10 },
 });

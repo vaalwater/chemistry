@@ -8,9 +8,10 @@ import IsomerListScreen from './IsomerListScreen';
 import IsoPlayScreen from './IsoPlayScreen';
 import AtomBuilderScreen from './AtomBuilderScreen';
 import AllotropeScreen from './AllotropeScreen';
+import AcidBaseScreen from './AcidBaseScreen';
 import { CRIT_HIGH, CRIT_LOW, type RadiusLabEntry } from '../radius/radiusRule';
 
-type ViewKey = 'home' | 'list' | 'play' | 'atom' | 'allotrope';
+type ViewKey = 'home' | 'list' | 'play' | 'atom' | 'allotrope' | 'acid';
 
 const ISO_CARD = {
   icon: 'git-network-outline' as const,
@@ -55,6 +56,23 @@ const RADIUS_CARD = {
   bullets: ['滑块 + 3D 结构实时重构', '预测配位数并验证', '给真实离子半径自己算'],
 };
 
+/** 酸碱性 · 水溶液里的离子 */
+const ACID_CARD = {
+  icon: 'flask-outline' as const,
+  title: '酸碱性 · 水溶液里的离子',
+  tag: '16 种常见酸碱盐 · 含双水解与竞争',
+  desc:
+    '把物质扔进水里，看它先电离成什么离子、哪些离子会抢水里的 OH⁻ / H⁺、抢完会放出什么。' +
+    '最后用 c(H⁺) 与 c(OH⁻) 的数量对比，直接读出酸性 / 碱性 / 中性。' +
+    '同是 NaCl / NH₄Cl，差在一个「不水解」与「弱碱的阳离子水解」，结论就一个中性一个酸性。',
+  bullets: [
+    '电离：强酸/强碱完全、弱电解质部分可逆',
+    '水解：阳离子抢 OH⁻ 显酸性、阴离子抢 H⁺ 显碱性',
+    '酸式盐 NaHCO₃：水解与电离同时跑，看谁赢',
+    '弱酸弱碱盐：双水解相互促进，H⁺ 与 OH⁻ 重新打平',
+  ],
+};
+
 export default function HandsOnScreen({
   onOpenRadiusLab,
 }: {
@@ -72,6 +90,9 @@ export default function HandsOnScreen({
   }
   if (view === 'allotrope') {
     return <AllotropeScreen onBack={() => setView('home')} />;
+  }
+  if (view === 'acid') {
+    return <AcidBaseScreen onBack={() => setView('home')} />;
   }
   if (view === 'list') {
     return (
@@ -173,6 +194,27 @@ export default function HandsOnScreen({
             </View>
           ))}
           <Text style={styles.enter}>进入实验</Text>
+        </Pressable>
+
+        <Pressable style={styles.card} onPress={() => setView('acid')} accessibilityRole="button">
+          <View style={styles.cardHead}>
+            <View style={styles.iconWrap}>
+              <Ionicons name={ACID_CARD.icon} size={22} color={colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{ACID_CARD.title}</Text>
+              <Text style={styles.cardTag}>{ACID_CARD.tag}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+          </View>
+          <Text style={styles.cardDesc}>{ACID_CARD.desc}</Text>
+          {ACID_CARD.bullets.map((b) => (
+            <View key={b} style={styles.bulletRow}>
+              <Ionicons name="checkmark-circle" size={13} color={colors.green} />
+              <Text style={styles.bulletText}>{b}</Text>
+            </View>
+          ))}
+          <Text style={styles.enter}>看水里的离子</Text>
         </Pressable>
 
         <Text style={styles.sectionTitle}>敬请期待</Text>

@@ -4,7 +4,7 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 
 ---
 
-# 35中数理化 · 改造手册
+# 理科3D视界 · 改造手册
 
 面向「后续升级改造」的导航与约定说明。**改 UI 结构前先读这一份**，比翻代码快。
 
@@ -111,9 +111,28 @@ HomeScreen（学科首页）
 
 ## 6. 3D 引擎（概要，细节见 README）
 
-三套打包好的 HTML：`src/engine/engineHtml.ts`（化学）、`geometryHtml.ts`（立体几何）、`physicsHtml.ts`（电磁学），分别由 `npm run build:engine` / `build:geo` / `build:phys` 生成 —— **这些文件自动生成，禁止手改**。
+四套打包好的 HTML：`src/engine/engineHtml.ts`（化学）、`geometryHtml.ts`（立体几何）、`physicsHtml.ts`（电磁学）、`acidHtml.ts`（酸碱性），分别由 `npm run build:engine` / `build:geo` / `build:phys` / `build:acid` 生成 —— **这些文件自动生成，禁止手改**。
 宿主通过 `ChemWebViewHost` 平台分文件（`.native.tsx` 用 WebView，`.web.tsx` 用 iframe）加载，双向 postMessage（宿主 → 引擎：`scene / reaction / view`；引擎 → 宿主：`ready / atomPick / reaction` …）。
 化学内容库是 `data/content.json`，改内容也要重新 `npm run build:engine`。
+
+**酸碱引擎（`engine/acid/` + `src/acid/acidRule.ts`）**：化学判断全在 TS 侧（`AcidCase` 数据表 + `buildScript()` 生成节拍），引擎 `acid.js` 只做演出。命令：`{cmd:'acid', case, script, from, play}` 建场（`from` = 快进到第 N 拍，练习模式用它直接演示某一步）、`{cmd:'acidCtl', action}` 控制；事件 `{ev:'acid', step, steps, title, text, h, oh}`（h/oh 是画面里自由 H⁺ / OH⁻ 的实时个数，直接用来画对比条）。改酸碱文案/物质 → 只改 `acidRule.ts`，热更新即生效；改动画本身 → 要重新 `npm run build:acid`。
+
+**练习模式（`src/acid/infer.ts` + `src/acid/quiz.ts` + `src/screens/AcidPracticeView.tsx`）**：用户输入任意分子式 → `inferFromFormula()` 按规则推导（不是查表：解析成原子计数 → 判断酸/碱/盐 → 电荷守恒反推阳离子电荷 → 「谁弱谁水解」，两边都水解时用 0~10 的强弱刻度比）→ 转成 `AcidCase` 复用动画；`buildQuiz()` 生成逐步单选题（水解 → 电离 → 谁占优 → 酸碱性），每步答完用 `from` 跳拍播放**真实情况**的动画。改推导规则/离子表 → 只改 `infer.ts`；已知局限：全小写输入靠「首字母 + 所有 o 大写」的启发式（`na2co3` 能对，`co3` 会被当成钴）。
+
+## 6.5 iOS 原生层的手工补丁（prebuild 会冲掉，重生成后必须重打）
+
+iOS 26+ 强制要求 App 采用 UIScene 生命周期，而 Expo SDK 57 / RN 0.86 的 prebuild 模板还是旧式
+window 生命周期 —— 直接在 iOS 27 模拟器上启动即崩（`UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`）。
+Expo 官方还没修，所以 `ios/3D/` 里有两处手工补丁，**跑过 `expo prebuild` 后要照着重打**：
+
+1. `Info.plist`：加 `UIApplicationSceneManifest`，`UISceneDelegateClassName` 指向 `AppDelegate`
+   （类上有 `@objc(AppDelegate)`，避免 Swift 模块名 `3D` 的名字重整问题）。
+2. `AppDelegate.swift`：类声明 `: ExpoAppDelegate, UISceneDelegate`；RN 的启动从
+   `didFinishLaunching` 挪到 `scene(_:willConnectTo:)` 里（场景代理和 app 代理是两个实例，
+   工厂要在 scene 回调里新建）；DEBUG 的 `bundleURL()` 里把 `jsLocation` 固定为 `localhost:8099`。
+
+编译模拟器包：`xcodebuild -workspace ios/3D.xcworkspace -scheme 3D -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build`，
+产物在 `ios/build/Build/Products/Debug-iphonesimulator/3D.app`（`xcrun simctl install booted <path>` 后 `launch`）。
 
 ## 7. 开发命令
 
