@@ -1,6 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  Modal,
   PanResponder,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -9,8 +12,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, shadow } from '../theme';
+import { content } from '../data';
 import {
   describeAtom,
+  elementByZ,
   EMPTY_ATOM,
   MAX_E,
   MAX_N,
@@ -154,7 +159,7 @@ export default function AtomBuilder({
       let tip = '';
       if (kind === 'p') {
         if (cur.p >= MAX_P) {
-          note(`课堂上先只用到前 ${MAX_P} 号元素（H ~ Ca）`, true);
+          note(`最多可以搭到 ${MAX_P} 号元素（H ~ Rn）`, true);
           return;
         }
         next = { ...cur, p: cur.p + 1 };
@@ -162,7 +167,7 @@ export default function AtomBuilder({
         if (cur.p === 0) tip = '有了第 1 个质子，它就是氢元素了';
       } else if (kind === 'n') {
         if (cur.n >= MAX_N) {
-          note('中子先别放太多啦', true);
+          note(`中子最多 ${MAX_N} 个，先别放太多啦`, true);
           return;
         }
         next = { ...cur, n: cur.n + 1 };
@@ -220,13 +225,41 @@ export default function AtomBuilder({
     note('已清空，从质子重新开始吧');
   }, [note]);
 
+  /* ---------- 元素选择条：一次填好某号元素（最常见的核素），之后仍可手动加减 ---------- */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickable = useMemo(
+    () => content.elements.filter((e) => e.p > 0 && e.p <= MAX_P).sort((a, b) => a.p - b.p),
+    []
+  );
+
+  const pickElement = useCallback(
+    (z: number) => {
+      const el = elementByZ(z);
+      if (!el) return;
+      const n = el.n ?? 0;
+      const next: AtomState = { p: z, n, e: z };
+      history.current.push(atomRef.current);
+      prevAtom.current = atomRef.current;
+      atomRef.current = next;
+      setAtom(next);
+      setPickerOpen(false);
+      note(`已填入 ${el.name} ${el.symbol}（最常见的核素）：质子 ${z} · 中子 ${n} · 电子 ${z}`);
+    },
+    [note]
+  );
+
   /* ---------- 粒子排布（金角螺旋放核子，电子按壳层均分） ---------- */
   const layout = useMemo(() => {
     const cx = size.w / 2;
     const cy = size.h / 2;
-    const nucleusR = Math.max(32, Math.min(50, Math.min(size.w, size.h) * 0.16));
-    const nucleons: Ball[] = [];
     const total = atom.p + atom.n;
+    // 核子越多，核画得越大、球画得越小，免得 Rn（86 质子 + 136 中子）糊成一坨看不出个数
+    const baseR = Math.min(size.w, size.h) * 0.16;
+    const nucleusR = Math.min(62, Math.max(32, baseR + Math.sqrt(total) * 2.4));
+    const nucleonSize = Math.round(
+      Math.max(7, Math.min(24, 2 * nucleusR * Math.sqrt(0.75 / Math.max(1, total))))
+    );
+    const nucleons: Ball[] = [];
     const golden = 2.39996323;
     for (let i = 0; i < total; i++) {
       const rr = nucleusR * 0.78 * Math.sqrt((i + 0.45) / Math.max(1, total + 0.4));
@@ -241,8 +274,10 @@ export default function AtomBuilder({
     const shells = describeAtom(atom).shells;
     const maxR = Math.min(size.w, size.h) / 2 - 12;
     const rings = shells.length;
-    const gap = rings > 0 ? (maxR - nucleusR - 14) / Math.max(1, rings) : 0;
+    // 层间距至少 13，保证相邻两层的电子球不粘在一起（重元素有 5~6 层）
+    const gap = rings > 0 ? Math.max(13, (maxR - nucleusR - 14) / Math.max(1, rings)) : 0;
     const ringRadii = shells.map((_, k) => nucleusR + 16 + gap * (k + 0.6));
+    const electronSize = rings >= 5 ? 10 : rings >= 4 ? 12 : 16;
     const electrons: Ball[] = [];
     let idx = 0;
     shells.forEach((cnt, k) => {
@@ -253,7 +288,7 @@ export default function AtomBuilder({
         idx++;
       }
     });
-    return { cx, cy, nucleusR, nucleons, ringRadii, electrons };
+    return { cx, cy, nucleusR, nucleons, ringRadii, electrons, nucleonSize, electronSize };
   }, [atom, size]);
 
   /* ---------- 拖拽：粒子格子各自接管 ---------- */
@@ -433,10 +468,10 @@ export default function AtomBuilder({
           />
         ))}
         {layout.nucleons.map((b) => (
-          <BallView key={b.key} ball={b} size={24} onPress={() => remove(b.kind)} />
+          <BallView key={b.key} ball={b} size={layout.nucleonSize} onPress={() => remove(b.kind)} />
         ))}
         {layout.electrons.map((b) => (
-          <BallView key={b.key} ball={b} size={16} onPress={() => remove(b.kind)} />
+          <BallView key={b.key} ball={b} size={layout.electronSize} onPress={() => remove(b.kind)} />
         ))}
       </View>
 
@@ -483,6 +518,7 @@ export default function AtomBuilder({
       </View>
 
       <View style={styles.toolRow}>
+        <PressableChip label="选元素" onPress={() => setPickerOpen(true)} />
         <PressableChip label="撤销" onPress={undo} />
         <View style={{ flex: 1 }} />
         <PressableChip label="清空" danger onPress={clearAll} />
@@ -498,6 +534,53 @@ export default function AtomBuilder({
           <Text style={[styles.hintText, hintWarn && styles.hintTextWarn]}>{hint}</Text>
         </View>
       ) : null}
+
+      {/* ④ 元素选择条：一次填好某号元素，不用逐个点几十次 */}
+      <Modal
+        visible={pickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <Pressable style={styles.modalMask} onPress={() => setPickerOpen(false)}>
+          <View
+            style={styles.modalBox}
+            onStartShouldSetResponder={() => true}
+            onResponderRelease={() => {}}
+          >
+            <Text style={styles.modalTitle}>选一个元素（1 ~ {MAX_P} 号）</Text>
+            <Text style={styles.modalSub}>
+              自动填成它最常见的核素，之后还可以手动加减质子 / 中子 / 电子
+            </Text>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollInner}>
+              <View style={styles.elGrid}>
+                {pickable.map((el) => (
+                  <Pressable
+                    key={el.symbol}
+                    style={styles.elCell}
+                    onPress={() => pickElement(el.p)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${el.p} 号 ${el.name} ${el.symbol}`}
+                  >
+                    <Text style={styles.elZ}>{el.p}</Text>
+                    <Text style={styles.elSym}>{el.symbol}</Text>
+                    <Text style={styles.elCn} numberOfLines={1}>
+                      {el.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+            <Pressable
+              style={styles.modalClose}
+              onPress={() => setPickerOpen(false)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.modalCloseText}>关闭</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -532,7 +615,9 @@ function BallView({
       onStartShouldSetResponder={() => true}
       onResponderRelease={onPress}
     >
-      <Text style={{ color: '#FFFFFF', fontSize: size * 0.6, fontWeight: '800' }}>{meta.glyph}</Text>
+      <Text style={{ color: '#FFFFFF', fontSize: size * 0.6, fontWeight: '800' }}>
+        {size >= 13 ? meta.glyph : ''}
+      </Text>
     </View>
   );
 }
@@ -680,4 +765,48 @@ const styles = StyleSheet.create({
   hintRowWarn: { backgroundColor: '#FFF6EA' },
   hintText: { flex: 1, fontSize: 12, color: colors.green, lineHeight: 17, fontWeight: '600' },
   hintTextWarn: { color: colors.orange },
+
+  modalMask: {
+    flex: 1,
+    backgroundColor: 'rgba(16,30,54,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalBox: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '82%',
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    padding: 14,
+    gap: 10,
+    ...shadow.card,
+  },
+  modalTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  modalSub: { fontSize: 11.5, color: colors.sub, lineHeight: 17 },
+  modalScroll: { flexShrink: 1 },
+  modalScrollInner: { paddingBottom: 4 },
+  elGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  elCell: {
+    width: '15%',
+    alignItems: 'center',
+    backgroundColor: '#F6F9FF',
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 6,
+    gap: 1,
+  },
+  elZ: { fontSize: 9.5, color: colors.faint, fontWeight: '700' },
+  elSym: { fontSize: 13.5, fontWeight: '800', color: colors.ink },
+  elCn: { fontSize: 10, color: colors.sub },
+  modalClose: {
+    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: colors.accentSoft,
+  },
+  modalCloseText: { fontSize: 13, fontWeight: '700', color: colors.accent },
 });

@@ -2,11 +2,11 @@ import { useCallback } from 'react';
 import { StyleSheet, View } from 'react-native';
 import ChannelTabBar, { type ChannelTabItem } from '../components/ChannelTabBar';
 import SubjectChannelScreen from './SubjectChannelScreen';
-import SolidGeoHomeScreen from './geo/SolidGeoHomeScreen';
+import SolidGeoHomeScreen, { type GeoViewKey } from './geo/SolidGeoHomeScreen';
 import SetLabScreen from './math/SetLabScreen';
 import ExtremeScreen from './math/ExtremeScreen';
 import HandsOnHomeScreen from './math/HandsOnHomeScreen';
-import EmHomeScreen from './physics/EmHomeScreen';
+import EmHomeScreen, { type EmViewKey } from './physics/EmHomeScreen';
 import type { SubjectKey, SubjectMeta } from '../subjects';
 import { colors } from '../theme';
 
@@ -39,12 +39,25 @@ export default function SubjectTabs({
   subject,
   moduleKey,
   setModuleKey,
+  init,
+  fromKnowledge,
+  onKnowledgeBack,
   onExit,
 }: {
   subject: SubjectMeta;
   /** 当前子模块路由；null = 浏览（频道首页） */
   moduleKey: string | null;
   setModuleKey: (route: string | null) => void;
+  /**
+   * 从知识点汇总进来时的预选：
+   * view = 一级模块里的二级实验室（geo 的 theorem / em 的 field / 数学动手的 draw），
+   * item = 实验室里要预选的条目（定理 id / 场 id / 交流电模块 key …）。
+   */
+  init?: { view?: string; item?: string } | null;
+  /** 这一屏是从知识点汇总点进来的 */
+  fromKnowledge?: boolean;
+  /** 模块页按返回时退回知识点汇总页（而不是频道浏览页） */
+  onKnowledgeBack: () => void;
   onExit: () => void;
 }) {
   /** 「浏览」+ 本学科提到导航条上的模块；最左的「学科」由导航条自带 */
@@ -56,7 +69,11 @@ export default function SubjectTabs({
   const active = moduleKey ?? BROWSE_KEY;
   /** 导航条在这些页上出现：浏览页 + 挂在导航条上的模块页 */
   const showTabBar = items.some((t) => t.key === active);
-  const goBrowse = useCallback(() => setModuleKey(null), [setModuleKey]);
+  /** 返回：从知识点汇总进来时退回汇总页，否则退回频道浏览页 */
+  const goBrowse = useCallback(
+    () => (fromKnowledge ? onKnowledgeBack() : setModuleKey(null)),
+    [fromKnowledge, onKnowledgeBack, setModuleKey]
+  );
   const openModule = useCallback((route: string) => setModuleKey(route), [setModuleKey]);
   const pressTab = useCallback(
     (key: string) => setModuleKey(key === BROWSE_KEY ? null : key),
@@ -70,10 +87,24 @@ export default function SubjectTabs({
           <SubjectChannelScreen subject={subject} onOpenModule={openModule} />
         ) : null}
         {active === 'set' ? <SetLabScreen onBack={goBrowse} /> : null}
-        {active === 'geo' ? <SolidGeoHomeScreen onBack={goBrowse} /> : null}
+        {active === 'geo' ? (
+          <SolidGeoHomeScreen
+            onBack={goBrowse}
+            initialView={init?.view as GeoViewKey | undefined}
+            initialItem={init?.item}
+          />
+        ) : null}
         {active === 'extreme' ? <ExtremeScreen onBack={goBrowse} /> : null}
-        {active === 'handsOn' ? <HandsOnHomeScreen onBack={goBrowse} /> : null}
-        {active === 'em' ? <EmHomeScreen onBack={goBrowse} /> : null}
+        {active === 'handsOn' ? (
+          <HandsOnHomeScreen onBack={goBrowse} initialView={init?.view as 'draw' | undefined} />
+        ) : null}
+        {active === 'em' ? (
+          <EmHomeScreen
+            onBack={goBrowse}
+            initialView={init?.view as EmViewKey | undefined}
+            initialItem={init?.item}
+          />
+        ) : null}
       </View>
 
       {/* 没挂到导航条上的模块页往下不显示底部导航，返回走页面左上角的「返回」 */}

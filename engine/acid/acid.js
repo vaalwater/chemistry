@@ -467,7 +467,18 @@
 
   function enterDissolve() {
     var sol = aliveActors().filter(function (a) { return a.solute; });
-    sol.forEach(function (a, i) { moveTo(a, spreadPos(i, sol.length), 1.6); });
+    sol.forEach(function (a, i) {
+      a.obj.visible = true; // 这一步溶质才正式登场（前一步先演纯水的动态平衡）
+      a.obj.scale.setScalar(0.4);
+      moveTo(a, spreadPos(i, sol.length), 1.6);
+    });
+  }
+  function stepDissolve(b, tt) {
+    aliveActors().forEach(function (a) {
+      if (a.solute && a.obj.scale.x < 1) {
+        a.obj.scale.setScalar(Math.min(1, a.obj.scale.x + 0.04));
+      }
+    });
   }
 
   function spawnProducts(center, products, dir) {
@@ -710,6 +721,190 @@
     if (b.ionTag) { root.remove(b.ionTag); disposeSprite(b.ionTag); b.ionTag = null; }
   }
 
+  /* ---------------------------------------------- 纯水的动态平衡
+   * H₂O ⇌ H⁺ + OH⁻ 两个方向同时跑：一对离子撞到一起变回水分子的同一瞬间，
+   * 另一个水分子电离出新的一对 —— 数量始终 4 : 4，这就是「动态平衡」。 */
+  function pickWaterNear(pos) {
+    var ws = nearestWaters(pos, 1);
+    return ws.length ? ws[0] : null;
+  }
+  function enterEquilibrium(b) {
+    var hs = aliveActors().filter(function (a) { return a.kind === 'h'; });
+    var ohs = aliveActors().filter(function (a) { return a.kind === 'oh'; });
+    var n = Math.min(hs.length, ohs.length, b.pairs || 4);
+    b.units = [];
+    for (var i = 0; i < n; i++) {
+      // 错峰启动，看起来就是「此起彼伏、一直在进行」
+      b.units.push({ h: hs[i], oh: ohs[i], t: -i * 0.5, phase: 'free', born: 0 });
+    }
+    b.tag = makeLabel('H₂O ⇌ H⁺ + OH⁻ · 电离速率 = 结合速率', { worldH: 0.4, size: 40, color: '#43597a' });
+    b.tag.position.set(0, BOX.y + 0.85, 0);
+    root.add(b.tag);
+  }
+  function stepEquilibrium(b, tt, dt) {
+    (b.units || []).forEach(function (u) {
+      u.t += dt;
+      // 刚从水分子里电离出来的那一对：由小长大，突出「诞生」
+      if (u.born > 0) {
+        u.born -= dt;
+        var g = 1 - Math.max(0, u.born) / 0.45;
+        if (!u.h.dead) u.h.obj.scale.setScalar(0.25 + 0.75 * g);
+        if (!u.oh.dead) u.oh.obj.scale.setScalar(0.25 + 0.75 * g);
+        if (u.born <= 0) { if (!u.h.dead) u.h.obj.scale.setScalar(1); if (!u.oh.dead) u.oh.obj.scale.setScalar(1); }
+      }
+      if (u.phase === 'free' && u.t > 0.9) {
+        u.w = pickWaterNear(u.h.obj.position);
+        if (!u.w) { u.t = 0; return; }
+        u.phase = 'merge';
+        u.t = 0;
+        moveTo(u.h, u.w.obj.position.clone(), 0.5);
+        moveTo(u.oh, u.w.obj.position.clone(), 0.5);
+      } else if (u.phase === 'merge' && u.t >= 0.55) {
+        // 旧的一对并入水分子的同一时刻，这个水分子电离出新的一对 → 总数不变
+        var pos = u.w && !u.w.dead ? u.w.obj.position.clone() : u.h.obj.position.clone();
+        var dir = randDir();
+        var nh = newActor('h', 'H⁺', 1, COL.h, 0.145, { glow: true, free: true });
+        var noh = newActor('oh', 'OH⁻', -1, COL.oh, 0.2, { glow: true, free: true });
+        nh.obj.position.copy(pos);
+        noh.obj.position.copy(pos);
+        nh.obj.scale.setScalar(0.25);
+        noh.obj.scale.setScalar(0.25);
+        moveTo(nh, pos.clone().addScaledVector(dir, 1.05), 0.7);
+        moveTo(noh, pos.clone().addScaledVector(dir, -1.05), 0.7);
+        removeActor(u.h);
+        removeActor(u.oh);
+        u.h = nh;
+        u.oh = noh;
+        u.phase = 'free';
+        u.t = 0;
+        u.born = 0.45;
+      }
+    });
+  }
+  function exitEquilibrium(b) {
+    if (b.tag) { root.remove(b.tag); disposeSprite(b.tag); b.tag = null; }
+    (b.units || []).forEach(function (u) {
+      if (!u.h.dead) u.h.obj.scale.setScalar(1);
+      if (!u.oh.dead) u.oh.obj.scale.setScalar(1);
+    });
+  }
+
+  /* ---------------------------------------------- 离子积：平衡移动
+   * ① 溶质把该放的 H⁺ / OH⁻ 全部放出来（粒子数骤增）
+   * ② 大量 H⁺ 撞上 OH⁻ 结合成水，OH⁻ 被消耗 —— 水的电离平衡左移
+   * ③ 落到满足 c(H⁺)·c(OH⁻) = Kw 的终态：H⁺ 多、OH⁻ 少，但 OH⁻ 一个都没凭空消失 */
+  function forceCounts(hWant, ohWant) {
+    var c = counts();
+    var hs = aliveActors().filter(function (a) { return a.kind === 'h'; });
+    var ohs = aliveActors().filter(function (a) { return a.kind === 'oh'; });
+    var i;
+    for (i = 0; i < c.h - hWant && i < hs.length; i++) removeActor(hs[hs.length - 1 - i]);
+    for (i = 0; i < c.oh - ohWant && i < ohs.length; i++) removeActor(ohs[ohs.length - 1 - i]);
+    for (i = c.h; i < hWant; i++) {
+      var a1 = newActor('h', 'H⁺', 1, COL.h, 0.145, { glow: true, free: true });
+      a1.obj.position.set(rnd(-BOX.x * 0.8, BOX.x * 0.8), rnd(-BOX.y * 0.8, BOX.y * 0.8), rnd(-BOX.z * 0.8, BOX.z * 0.8));
+    }
+    for (i = c.oh; i < ohWant; i++) {
+      var a2 = newActor('oh', 'OH⁻', -1, COL.oh, 0.2, { glow: true, free: true });
+      a2.obj.position.set(rnd(-BOX.x * 0.8, BOX.x * 0.8), rnd(-BOX.y * 0.8, BOX.y * 0.8), rnd(-BOX.z * 0.8, BOX.z * 0.8));
+    }
+  }
+  function enterKwShift(b) {
+    var sol = aliveActors().filter(function (a) { return a.solute || a.role === 'active'; });
+    b.src = sol.length ? sol : aliveActors();
+    b.jobs = [];
+    var i;
+    for (i = 0; i < (b.addH || 0); i++) b.jobs.push({ kind: 'h', t: -(0.25 + i * 0.11), done: false });
+    for (i = 0; i < (b.addOH || 0); i++) b.jobs.push({ kind: 'oh', t: -(0.25 + i * 0.11), done: false });
+    b.quenchJobs = [];
+    b.quenchAt = 0.3 + (b.jobs.length ? b.jobs.length * 0.11 : 0) + 0.9;
+    b.phase = 'add';
+    b.tag = null;
+    b.setTag = function (txt, color) {
+      if (b.tag) { root.remove(b.tag); disposeSprite(b.tag); b.tag = null; }
+      b.tag = makeLabel(txt, { worldH: 0.42, size: 42, color: color || '#43597a' });
+      b.tag.position.set(0, BOX.y + 0.9, 0);
+      root.add(b.tag);
+    };
+    b.setTag(b.jobs.length ? '溶质继续放出离子 → 粒子数骤增' : '平衡左移：H⁺ + OH⁻ → H₂O', b.jobs.length ? '#c62828' : '#1565c0');
+  }
+  function stepKwShift(b, tt, dt) {
+    var i;
+    /* ① 补充：溶质继续放出 H⁺ / OH⁻ */
+    (b.jobs || []).forEach(function (j, idx) {
+      if (j.done) return;
+      j.t += dt;
+      if (j.t < 0) return;
+      j.done = true;
+      var isH = j.kind === 'h';
+      var a = newActor(isH ? 'h' : 'oh', isH ? 'H⁺' : 'OH⁻', isH ? 1 : -1, isH ? COL.h : COL.oh,
+        isH ? 0.145 : 0.2, { glow: true, free: true });
+      var s = b.src[idx % b.src.length];
+      var from = s && !s.dead ? s.obj.position.clone() : V(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1));
+      a.obj.position.copy(from);
+      a.obj.scale.setScalar(0.3);
+      b.grow = b.grow || [];
+      b.grow.push(a);
+      var to = V(rnd(-BOX.x * 0.85, BOX.x * 0.85), rnd(-BOX.y * 0.85, BOX.y * 0.85), rnd(-BOX.z * 0.85, BOX.z * 0.85));
+      moveTo(a, to, 1.0);
+    });
+    if (b.grow) {
+      b.grow = b.grow.filter(function (a) {
+        if (a.dead) return false;
+        var k = Math.min(1, a.obj.scale.x + dt * 2.2);
+        a.obj.scale.setScalar(k);
+        return k < 1;
+      });
+    }
+    /* ② 平衡左移：多余的 H⁺ 与 OH⁻ 结合成水 */
+    if (b.phase === 'add' && tt >= b.quenchAt) {
+      b.phase = 'quench';
+      b.setTag('平衡左移：H⁺ + OH⁻ → H₂O，OH⁻ 被消耗', '#1565c0');
+      var hs = aliveActors().filter(function (a) { return a.kind === 'h'; });
+      var ohs = aliveActors().filter(function (a) { return a.kind === 'oh'; });
+      var n = Math.min(b.quench || 0, hs.length, ohs.length);
+      for (i = 0; i < n; i++) {
+        b.quenchJobs.push({ h: hs[hs.length - 1 - i], oh: ohs[ohs.length - 1 - i], t: -i * 0.45, phase: 'wait', done: false });
+      }
+      if (!n) b.phase = 'done';
+    }
+    (b.quenchJobs || []).forEach(function (j) {
+      if (j.done) return;
+      j.t += dt;
+      if (j.phase === 'wait') {
+        if (j.t < 0) return;
+        var mid = j.h.obj.position.clone().add(j.oh.obj.position).multiplyScalar(0.5);
+        j.mid = mid;
+        moveTo(j.h, mid.clone(), 0.75);
+        moveTo(j.oh, mid.clone(), 0.75);
+        j.phase = 'move';
+        j.t = 0;
+      } else if (j.phase === 'move' && j.t >= 0.8) {
+        makeWater(j.mid || j.h.obj.position.clone());
+        removeActor(j.h);
+        removeActor(j.oh);
+        j.done = true;
+      }
+    });
+    /* ③ 收尾：亮出 Kw 恒等式 */
+    var allDone = (b.quenchJobs || []).every(function (j) { return j.done; });
+    if (b.phase === 'quench' && allDone) {
+      b.phase = 'done';
+      b.setTag('c(H⁺)·c(OH⁻) = 1.0×10⁻¹⁴ = Kw（恒定）', '#00695c');
+    }
+    if (b.phase === 'done' && b.tag) {
+      aliveActors().forEach(function (a) {
+        if (a.kind === 'h' || a.kind === 'oh') a.obj.scale.setScalar(1 + 0.18 * Math.sin(tt * 6 + a.obj.position.x));
+      });
+    }
+  }
+  function exitKwShift(b) {
+    if (b.tag) { root.remove(b.tag); disposeSprite(b.tag); b.tag = null; }
+    aliveActors().forEach(function (a) { if (!a.dead) a.obj.scale.setScalar(1); });
+    // 兜底校正：暂停 / 跳拍 / 拖进度条都可能打断动画，退出时强制对齐到满足 Kw 的终态
+    if (b.h != null && b.oh != null) forceCounts(b.h, b.oh);
+  }
+
   function enterTally(b) {
     var c = counts();
     var txt = c.h > c.oh ? 'c(H⁺) > c(OH⁻) → 酸性'
@@ -739,7 +934,11 @@
       var b = { kind: s.kind, title: s.title, text: s.text, dur: 2.2, enter: null, step: null, exit: null };
       switch (s.kind) {
         case 'intro': b.dur = 2.0; break;
-        case 'dissolve': b.dur = 2.4; b.enter = enterDissolve; break;
+        case 'equilibrium':
+          b.dur = 4.2; b.pairs = s.pairs || 4;
+          b.enter = enterEquilibrium; b.step = stepEquilibrium; b.exit = exitEquilibrium;
+          break;
+        case 'dissolve': b.dur = 2.4; b.enter = enterDissolve; b.step = stepDissolve; break;
         case 'ionize':
           b.dur = s.full ? 2.6 : 3.6;
           b.full = !!s.full;
@@ -752,6 +951,11 @@
           b.dur = 5.0; b.hyd = s.hyd; b.ion = s.ion; b.winner = s.winner;
           b.enter = enterCompete; b.step = stepCompete; b.exit = exitCompete;
           break;
+        case 'kwShift':
+          b.dur = 5.6; b.addH = s.addH || 0; b.addOH = s.addOH || 0; b.quench = s.quench || 0;
+          b.h = s.h; b.oh = s.oh;
+          b.enter = enterKwShift; b.step = stepKwShift; b.exit = exitKwShift;
+          break;
         case 'tally': b.dur = 4.0; b.enter = enterTally; b.step = stepTally; b.exit = exitTally; break;
         default: break;
       }
@@ -763,29 +967,38 @@
   /* ------------------------------------------------------------ 建场 */
   function buildCase(c, script, fromBeat, play) {
     curCase = c;
+    player.rawScript = script; // 留着：倒退 / 重播时用它重建场景（前进模型无法反向撤销）
     clearScene();
     var i;
     for (i = 0; i < 22; i++) {
       makeWater(V(rnd(-BOX.x, BOX.x), rnd(-BOX.y, BOX.y), rnd(-BOX.z, BOX.z)));
     }
-    // 水自身电离的基线：各 1 个，数量相等 = 中性的起跑线
-    var h0 = newActor('h', 'H⁺', 1, COL.h, 0.145, { glow: true, free: true });
-    h0.obj.position.set(-1.7, -1.4, 0.7);
-    var o0 = newActor('oh', 'OH⁻', -1, COL.oh, 0.2, { glow: true, free: true });
-    o0.obj.position.set(1.7, -1.4, -0.7);
+    // 纯水的基线：H⁺、OH⁻ 各 4 个（纯水浓度记作 1.0×10⁻⁷），4 × 4 = 16 = 离子积 Kw 的粒子数常数。
+    // 之后任何一步都必须满足 h × oh = 16 —— H⁺ 变多，OH⁻ 就一定变少。
+    var KW_BASE = 4;
+    for (i = 0; i < KW_BASE; i++) {
+      var hp = spreadPos(i, KW_BASE);
+      var h0 = newActor('h', 'H⁺', 1, COL.h, 0.145, { glow: true, free: true });
+      h0.obj.position.set(hp.x * 0.8, hp.y * 0.7 - 0.6, hp.z);
+      var o0 = newActor('oh', 'OH⁻', -1, COL.oh, 0.2, { glow: true, free: true });
+      o0.obj.position.set(-hp.x * 0.8 + 0.6, -hp.y * 0.7 - 0.6, -hp.z);
+    }
 
+    // 溶质先藏起来：第一拍要展示的是「纯水的动态平衡」，溶质等溶解那一步再登场
     if (c.form === 'salt') {
       for (i = 0; i < 3; i++) {
         (c.ions || []).forEach(function (ion) {
           var a = newActor('ion', ion.label, ion.charge, colorOf(ion.label, ion.charge),
             radiusOf(ion.label, ion.charge), { solute: true, role: ion.role });
           a.obj.position.set(rnd(-0.35, 0.35), rnd(-0.35, 0.35), rnd(-0.35, 0.35));
+          a.obj.visible = false;
         });
       }
     } else {
       for (i = 0; i < 3; i++) {
         var m = newActor('mol', c.molecule || c.formula, 0, COL.mol, 0.26, { solute: true });
         m.obj.position.set(rnd(-0.4, 0.4), rnd(-0.4, 0.4), rnd(-0.4, 0.4));
+        m.obj.visible = false;
       }
     }
 
@@ -848,7 +1061,16 @@
 
   /* ------------------------------------------------------------ 命令 */
   function handleAcid(m) {
-    if (m.case && m.script) buildCase(m.case, m.script, m.from, m.play);
+    if (m.case && m.script) {
+      buildCase(m.case, m.script, m.from, m.play);
+      resetView(); // 换物质 / 重开练习时视角回到出厂位置（用户平移过也不残留）
+    }
+  }
+  /** 倒退 / 重播：前进的节拍无法反向撤销（粒子已经生成过），干脆重建场景再快进到目标拍 */
+  function replayTo(i, keepPlaying) {
+    if (!curCase || !player.rawScript) return;
+    var wasPlaying = keepPlaying === undefined ? player.playing : keepPlaying;
+    buildCase(curCase, player.rawScript, i, wasPlaying);
   }
   function handleCtl(m) {
     var act = m.action;
@@ -856,12 +1078,46 @@
     else if (act === 'pause') { player.playing = false; notifyStep(); }
     else if (act === 'toggle') { player.playing = !player.playing; notifyStep(); }
     else if (act === 'next') gotoBeat(player.i + 1);
-    else if (act === 'prev') gotoBeat(player.i - 1);
-    else if (act === 'restart') { player.playing = true; gotoBeat(player.from || 0); }
-    else if (act === 'goto' && m.step != null) gotoBeat(Number(m.step) - 1);
+    else if (act === 'prev') replayTo(player.i - 1);
+    else if (act === 'restart') replayTo(player.from || 0, true);
+    else if (act === 'goto' && m.step != null) replayTo(clamp(Number(m.step) - 1, 0, player.list.length - 1));
     else if (act === 'speed') player.speed = clamp(Number(m.value) || 1, 0.4, 2.5);
-    else if (act === 'cam') { cam.theta = -0.45; cam.phi = 1.16; cam.dist = 10.4; cam.auto = true; applyCam(); }
+    else if (act === 'cam') resetView();
   }
+
+  /* ---- 视角：方向盘平移观察中心 / 复位 ---- */
+  var WORLD_UP = new THREE.Vector3(0, 1, 0);
+  var _pf = new THREE.Vector3(), _pr = new THREE.Vector3(), _pu = new THREE.Vector3();
+  /** 以"屏幕方向"为基准平移观察中心：left/right 水平，up/down 垂直（与化学引擎 panCamera 一致） */
+  function panCamera(dir) {
+    var dx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+    var dy = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
+    if (!dx && !dy) return;
+    var step = 0.9;
+    _pf.subVectors(cam.target, camera.position);
+    if (_pf.lengthSq() < 1e-6) _pf.set(0, 0, -1);
+    _pf.normalize();
+    _pr.crossVectors(_pf, WORLD_UP);
+    if (_pr.lengthSq() < 1e-6) _pr.set(1, 0, 0);
+    _pr.normalize();
+    _pu.crossVectors(_pr, _pf).normalize();
+    var lim = { x: BOX.x + 1.4, y: BOX.y + 1.4, z: BOX.z + 1.4 };
+    cam.target.set(
+      clamp(cam.target.x + (_pr.x * dx + _pu.x * dy) * step, -lim.x, lim.x),
+      clamp(cam.target.y + (_pr.y * dx + _pu.y * dy) * step, -lim.y, lim.y),
+      clamp(cam.target.z + (_pr.z * dx + _pu.z * dy) * step, -lim.z, lim.z)
+    );
+    cam.auto = false; // 用户手动平移后停止自动巡游，交给用户控制
+    applyCam();
+  }
+  /** 角度、距离、观察中心全部归位 */
+  function resetView() {
+    cam.theta = -0.45; cam.phi = 1.16; cam.dist = 10.4;
+    cam.target.set(0, 0, 0);
+    cam.auto = true;
+    applyCam();
+  }
+
   function handleCommand(msg) {
     var m = msg;
     if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { return; } }
@@ -873,6 +1129,11 @@
       return;
     }
     if (m.cmd === 'acidCtl') { handleCtl(m); return; }
+    if (m.cmd === 'view') {
+      if (m.action === 'pan') panCamera(m.dir);
+      else if (m.action === 'reset') resetView();
+      return;
+    }
   }
   window.addEventListener('message', function (e) { handleCommand(e.data); });
   window.__dispatch = handleCommand;

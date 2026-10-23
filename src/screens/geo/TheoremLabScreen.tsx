@@ -1,20 +1,36 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
-import Geo3DView from '../../components/Geo3DView';
+import Geo3DView, { type Geo3DHandle } from '../../components/Geo3DView';
+import CanvasPanPad, { type PanDir } from '../../components/CanvasPanPad';
 import { DECISION_TREE, THEOREMS, type TheoremId } from '../../geometry/geoContent';
 
 type Tree = typeof DECISION_TREE[keyof typeof DECISION_TREE];
 
 /** 痛点二：定理可视化实验室（四步演示 + 反例开关 + 判定树引导） */
-export default function TheoremLabScreen({ onBack }: { onBack: () => void }) {
+export default function TheoremLabScreen({
+  onBack,
+  initialId,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的定理 */
+  initialId?: TheoremId;
+}) {
   const insets = useSafeAreaInsets();
-  const [idx, setIdx] = useState(0);
+  const [idx, setIdx] = useState(() => {
+    const i = initialId ? THEOREMS.findIndex((t) => t.id === initialId) : -1;
+    return i >= 0 ? i : 0;
+  });
   const [step, setStep] = useState(1);
   const [counter, setCounter] = useState(false);
   const [node, setNode] = useState<string | null>(null);
+  const geoRef = useRef<Geo3DHandle | null>(null);
+  const handlePan = useCallback(
+    (dir: PanDir) => geoRef.current?.send({ cmd: 'geo', action: 'view', pan: dir }),
+    []
+  );
 
   const th = THEOREMS[idx];
   const command = useMemo(
@@ -44,7 +60,8 @@ export default function TheoremLabScreen({ onBack }: { onBack: () => void }) {
       </View>
 
       <View style={styles.viewWrap}>
-        <Geo3DView command={command} onEvent={() => {}} />
+        <Geo3DView ref={geoRef} command={command} onEvent={() => {}} />
+        <CanvasPanPad top={8} bottom={8} onPan={handlePan} />
       </View>
 
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelInner} showsVerticalScrollIndicator={false}>

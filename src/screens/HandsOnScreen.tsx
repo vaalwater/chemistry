@@ -75,29 +75,47 @@ const ACID_CARD = {
 
 export default function HandsOnScreen({
   onOpenRadiusLab,
+  initialView,
+  initialItem,
+  fromKnowledge,
+  onExit,
 }: {
   onOpenRadiusLab: (entry: RadiusLabEntry) => void;
+  /** 从知识点汇总等处进入时，直接打开对应的实验 */
+  initialView?: Exclude<ViewKey, 'play'>;
+  /** 实验内要预选的条目（如酸碱实验的物质 id） */
+  initialItem?: string;
+  /** 这一屏是从知识点汇总点进来的 */
+  fromKnowledge?: boolean;
+  /** 实验页按返回时退回知识点汇总页 */
+  onExit?: () => void;
 }) {
-  const [view, setView] = useState<ViewKey>('home');
+  const [view, setView] = useState<ViewKey>(initialView ?? 'home');
   const [problem, setProblem] = useState<IsoProblem | null>(null);
   const insets = useSafeAreaInsets();
+  /**
+   * 被外部直接打开某个实验时（比如从知识点汇总点进来），
+   * 实验里的「返回」直接离开本 tab（回到汇总页），而不是退回动手首页。
+   */
+  const backFromLab =
+    fromKnowledge && onExit ? onExit : () => setView('home');
 
   if (view === 'play' && problem) {
     return <IsoPlayScreen problem={problem} onBack={() => setView('list')} />;
   }
   if (view === 'atom') {
-    return <AtomBuilderScreen onBack={() => setView('home')} />;
+    return <AtomBuilderScreen onBack={backFromLab} />;
   }
   if (view === 'allotrope') {
-    return <AllotropeScreen onBack={() => setView('home')} />;
+    return <AllotropeScreen onBack={backFromLab} />;
   }
   if (view === 'acid') {
-    return <AcidBaseScreen onBack={() => setView('home')} />;
+    return <AcidBaseScreen onBack={backFromLab} initialCaseId={initialItem} />;
   }
   if (view === 'list') {
     return (
       <IsomerListScreen
-        onBack={() => setView('home')}
+        onBack={backFromLab}
         onOpen={(p) => {
           setProblem(p);
           setView('play');

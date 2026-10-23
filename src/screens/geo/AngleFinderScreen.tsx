@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
-import Geo3DView from '../../components/Geo3DView';
-import { ANGLE_KINDS } from '../../geometry/geoContent';
+import Geo3DView, { type Geo3DHandle } from '../../components/Geo3DView';
+import CanvasPanPad, { type PanDir } from '../../components/CanvasPanPad';
+import { ANGLE_KINDS, type AngleType } from '../../geometry/geoContent';
 
 const STEPS = [
   { key: 'find', label: '找', desc: '' },
@@ -13,15 +14,30 @@ const STEPS = [
 ];
 
 /** 痛点三：空间角三步定位器（找 → 证 → 算 + 变式题 + 辅助线判定） */
-export default function AngleFinderScreen({ onBack }: { onBack: () => void }) {
+export default function AngleFinderScreen({
+  onBack,
+  initialKind,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的角的类型 */
+  initialKind?: AngleType;
+}) {
   const insets = useSafeAreaInsets();
-  const [kindIdx, setKindIdx] = useState(0);
+  const [kindIdx, setKindIdx] = useState(() => {
+    const i = initialKind ? ANGLE_KINDS.findIndex((k) => k.id === initialKind) : -1;
+    return i >= 0 ? i : 0;
+  });
   const [varIdx, setVarIdx] = useState(0);
   const [step, setStep] = useState(0); // 0=找 1=证 2=算
   const [auxId, setAuxId] = useState<string | null>(null);
   const [answer, setAnswer] = useState('');
   const [judge, setJudge] = useState<null | 'ok' | 'no'>(null);
   const [reveal, setReveal] = useState(false);
+  const geoRef = useRef<Geo3DHandle | null>(null);
+  const handlePan = useCallback(
+    (dir: PanDir) => geoRef.current?.send({ cmd: 'geo', action: 'view', pan: dir }),
+    []
+  );
 
   const kind = ANGLE_KINDS[kindIdx];
   const v = kind.variants[varIdx];
@@ -60,7 +76,8 @@ export default function AngleFinderScreen({ onBack }: { onBack: () => void }) {
       </View>
 
       <View style={styles.viewWrap}>
-        <Geo3DView command={command} onEvent={() => {}} />
+        <Geo3DView ref={geoRef} command={command} onEvent={() => {}} />
+        <CanvasPanPad top={8} bottom={8} onPan={handlePan} />
       </View>
 
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelInner} showsVerticalScrollIndicator={false}>

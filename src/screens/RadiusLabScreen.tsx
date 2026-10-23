@@ -96,7 +96,7 @@ export default function RadiusLabScreen({
   }, [ratio]);
 
   // 滑块改成横向后放在画布下方，剩下的空间尽量都留给 3D
-  const canvasH = wide ? 430 : Math.round(Math.max(240, Math.min(400, winH - 395)));
+  const canvasH = wide ? 430 : Math.round(Math.max(280, Math.min(400, winH * 0.42)));
 
   const info = infoFor(ratio);
   const nearCrit = distanceToNextCritical(ratio) < 0.03;
@@ -166,18 +166,22 @@ export default function RadiusLabScreen({
           </View>
         </View>
       ) : (
-        <View style={styles.stageNarrow}>
-          <View style={styles.canvasColNarrow}>
-            <View style={[styles.canvasWrapFixed, { height: canvasH }]}>
-              <Chem3DView ref={chemRef} scene={scene} onEvent={handleEvent} />
-              <View style={styles.canvasHint} pointerEvents="none">
-                <Text style={styles.canvasHintText}>
-                  {nearCrit ? '马上跨过临界值了' : `配位数 ${info.cn} · ${info.hole}`}
-                </Text>
-              </View>
+        /* 窄屏（手机）：整页统一滚动 —— 画布 + 滑块 + 说明卡都在一个 ScrollView 里，
+           避免画布把下方内容挤出屏幕、滚动区塌成 0 导致滚不动 */
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.narrowBody}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.canvasWrapFixed, { height: canvasH }]}>
+            <Chem3DView ref={chemRef} scene={scene} onEvent={handleEvent} />
+            <View style={styles.canvasHint} pointerEvents="none">
+              <Text style={styles.canvasHintText}>
+                {nearCrit ? '马上跨过临界值了' : `配位数 ${info.cn} · ${info.hole}`}
+              </Text>
             </View>
           </View>
-          <View style={styles.sliderBarNarrow}>
+          <View>
             <SliderBlock
               ratio={ratio}
               setRatio={setRatio}
@@ -185,14 +189,12 @@ export default function RadiusLabScreen({
               onToggleCrit={() => setShowCrit((v) => !v)}
             />
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.narrowBody}>
-            <InfoPanel ratio={ratio} />
-            {mode === 'explore' ? <ExplorePanel explored={explored} /> : null}
-            {mode === 'predict' ? <PredictPanel onJump={setRatio} /> : null}
-            {mode === 'apply' ? <ApplyPanel startId={entry?.applyId} onJump={setRatio} /> : null}
-            <Legend />
-          </ScrollView>
-        </View>
+          <InfoPanel ratio={ratio} />
+          {mode === 'explore' ? <ExplorePanel explored={explored} /> : null}
+          {mode === 'predict' ? <PredictPanel onJump={setRatio} /> : null}
+          {mode === 'apply' ? <ApplyPanel startId={entry?.applyId} onJump={setRatio} /> : null}
+          <Legend />
+        </ScrollView>
       )}
     </View>
   );
@@ -589,8 +591,6 @@ const styles = StyleSheet.create({
   stageWide: { flex: 1, flexDirection: 'row', paddingHorizontal: 14, gap: 12, paddingBottom: 12 },
   canvasCol: { flex: 1, minWidth: 0 },
   sliderBar: { marginTop: 10 },
-  sliderBarNarrow: { paddingHorizontal: 14, paddingTop: 10 },
-  canvasColNarrow: { paddingHorizontal: 14, paddingTop: 2 },
   sliderCard: {
     backgroundColor: colors.card,
     borderRadius: radii.card,
@@ -649,7 +649,6 @@ const styles = StyleSheet.create({
   },
   panelCol: { width: 268 },
   panelScroll: { gap: 10, paddingBottom: 20 },
-  stageNarrow: { flex: 1 },
   narrowBody: { paddingHorizontal: 14, paddingTop: 10, gap: 10, paddingBottom: 24 },
 
   card: {

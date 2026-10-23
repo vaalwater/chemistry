@@ -85,6 +85,7 @@ export default function AtomBuilderScreen({ onBack }: { onBack: () => void }) {
       >
         <Text style={styles.lead}>
           把质子、中子、电子拖进原子模型，左上角会实时生成核素符号。先拖 1 个质子做出氢，再加中子看看会发生什么。
+          想直接看某个元素（支持到 86 号 Rn），点画布下方的「选元素」可以一次填好。
         </Text>
 
         <AtomBuilder canvasHeight={300} onDragStateChange={setDragging} />

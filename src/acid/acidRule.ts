@@ -64,6 +64,8 @@ export interface AcidCase {
   moleculeIons?: { label: string; charge: number }[];
   hydrolysis?: HydrolysisSpec[];
   ionization?: IonizationSpec;
+  /** 终态 H⁺/OH⁻ 粒子数（满足 h·oh = KW_PROD）；不给则按强弱自动推算 */
+  kw?: KwTargets;
   /** 主方程式 */
   equation: string;
   /** 讲解 */
@@ -74,8 +76,34 @@ export interface AcidCase {
 
 /* ------------------------------------------------------------------ 动画节拍 */
 
+/* =========================================================================
+ * 水的离子积 Kw（25 ℃：c(H⁺)·c(OH⁻) = 1.0×10⁻¹⁴）
+ * -------------------------------------------------------------------------
+ * 场景里用「粒子数」示意浓度：纯水两边各 BASE 个（浓度记作 1.0×10⁻⁷），
+ * 任意时刻都满足  h × oh = BASE²  —— H⁺ 越多，OH⁻ 就越少，乘积纹丝不动。
+ *
+ * 为什么必须是这些整数档：设溶质净放出 ΔH 个 H⁺、ΔOH 个 OH⁻，平衡左移
+ * 消耗 x 对（H⁺ + OH⁻ → H₂O），则终态 h = BASE + ΔH − x、oh = BASE + ΔOH − x。
+ * 两式相减得 h − oh = ΔH − ΔOH（差值守恒），再配上 h·oh = BASE²，
+ * BASE = 4 时恰好有整数解：(4,4) (8,2) (16,1) (2,8) (1,16) 五档。
+ * ========================================================================= */
+export const KW_BASE = 4;                 // 纯水每边的粒子数 = 浓度 1.0×10⁻⁷ mol/L
+export const KW_PROD = KW_BASE * KW_BASE; // 粒子数乘积，恒为 16
+
+export interface KwTargets {
+  h: number;
+  oh: number;
+}
+
 export type AcidBeat =
   | { kind: 'intro'; title: string; text: string }
+  | {
+      kind: 'equilibrium';
+      title: string;
+      text: string;
+      /** 参与动态平衡的离子对数（= 纯水的粒子数） */
+      pairs: number;
+    }
   | { kind: 'dissolve'; title: string; text: string }
   | { kind: 'ionize'; title: string; text: string; full: boolean }
   | { kind: 'hydrate'; title: string; text: string }
@@ -90,9 +118,92 @@ export type AcidBeat =
       /** 占优的一方 */
       winner: 'hydrolysis' | 'ionization';
     }
+  | {
+      /** 离子积 / 平衡移动：溶质放出的离子补够 → 多余的 H⁺ 与 OH⁻ 结合成水 → 落到 Kw 约束的终态 */
+      kind: 'kwShift';
+      title: string;
+      text: string;
+      /** 溶质还需要补放的 H⁺ / OH⁻ 个数（补足到 ΔH − ΔOH = h − oh） */
+      addH: number;
+      addOH: number;
+      /** 要结合成水的 (H⁺, OH⁻) 对数 */
+      quench: number;
+      /** 终态粒子数（满足 h × oh = KW_PROD） */
+      h: number;
+      oh: number;
+    }
   | { kind: 'tally'; title: string; text: string };
 
 const ionText = (list: { label: string }[]) => list.map((i) => i.label).join(' + ');
+const isH = (label: string) => label === 'H⁺' || label === 'H+';
+const isOH = (label: string) => label === 'OH⁻' || label === 'OH-';
+
+/**
+ * 终态 H⁺/OH⁻ 粒子数：中性 4:4，弱酸 8:2，强酸 16:1，弱碱 2:8，强碱 1:16。
+ * 强 vs 弱的判据：酸/碱看是否完全电离；盐看「是不是酸式根直接电离出 H⁺」。
+ */
+export function kwTargetsOf(c: AcidCase): KwTargets {
+  if (c.kw) return c.kw;
+  if (c.verdict === 'neutral') return { h: KW_BASE, oh: KW_BASE };
+
+  let strong = false;
+  if (c.groupKey === 'acid' || c.groupKey === 'base') {
+    strong = !!c.moleculeFull;
+  } else {
+    const hasHyd = !!(c.hydrolysis && c.hydrolysis.length > 0);
+    const hasIon = !!c.ionization;
+    if (!hasHyd && !hasIon) return { h: KW_BASE, oh: KW_BASE };
+    // 只有电离、不水解（NaHSO₄：HSO₄⁻ 完全电离，等价于强酸）；凡是靠水解的都算「弱」
+    if (hasIon && !hasHyd) strong = !!c.ionization?.full;
+    else strong = false;
+  }
+  if (c.verdict === 'acid') return strong ? { h: 16, oh: 1 } : { h: 8, oh: 2 };
+  return strong ? { h: 1, oh: 16 } : { h: 2, oh: 8 };
+}
+
+/** 各反应节拍已经往溶液里放出的 H⁺ / OH⁻ 个数（要和引擎里实际生成的数量一致） */
+export function soluteDeltaOf(c: AcidCase): { dH: number; dOH: number } {
+  let dH = 0;
+  let dOH = 0;
+  if (c.form === 'molecule' && c.moleculeIons) {
+    const perH = c.moleculeIons.filter((i) => isH(i.label)).length;
+    const perOH = c.moleculeIons.filter((i) => isOH(i.label)).length;
+    const mols = c.moleculeFull ? 3 : 1; // 引擎里：完全电离 = 全部 3 个分子，部分电离 = 1 个
+    dH += perH * mols;
+    dOH += perOH * mols;
+  }
+  const hyd = c.hydrolysis || [];
+  const ion = c.ionization;
+  if (hyd.length > 0 && !ion) {
+    hyd.forEach((h) => {
+      const n = h.count || 1;
+      if (h.release === 'H') dH += n;
+      else dOH += n;
+    });
+  } else if (ion && hyd.length === 0) {
+    const n = ion.count || (ion.full ? 3 : 1);
+    ion.into.forEach((i) => {
+      if (isH(i.label)) dH += n;
+      else if (isOH(i.label)) dOH += n;
+    });
+  } else if (ion && hyd.length > 0) {
+    // 竞争：一部分水解、一部分电离（与引擎 compete 的默认数量一致）
+    const hn = hyd[0].count || 2;
+    if (hyd[0].release === 'H') dH += hn;
+    else dOH += hn;
+    const inN = ion.count || 1;
+    ion.into.forEach((i) => {
+      if (isH(i.label)) dH += inN;
+      else if (isOH(i.label)) dOH += inN;
+    });
+  }
+  return { dH, dOH };
+}
+
+/** 把终态粒子数换算成浓度（纯水 = 1.0×10⁻⁷ mol/L） */
+export function concOf(n: number): number {
+  return n / KW_BASE;
+}
 
 /** 把一个物质翻译成动画节拍序列 */
 export function buildScript(c: AcidCase): AcidBeat[] {
@@ -102,7 +213,16 @@ export function buildScript(c: AcidCase): AcidBeat[] {
     kind: 'intro',
     title: `把 ${c.formula} 放进水里`,
     text:
-      '水里本来就有极少量 H⁺ 和 OH⁻（水自身电离，H₂O ⇌ H⁺ + OH⁻），它们数量相等、互不压制 —— 这是判断酸碱性的起跑线。',
+      `水里本来就有极少量 H⁺ 和 OH⁻（水自身电离，H₂O ⇌ H⁺ + OH⁻）：各有 ${KW_BASE} 个，数量相等、互不压制 —— 这是判断酸碱性的起跑线。`,
+  });
+
+  beats.push({
+    kind: 'equilibrium',
+    pairs: KW_BASE,
+    title: '纯水的动态平衡：H₂O ⇌ H⁺ + OH⁻',
+    text:
+      `看水本身：水分子不断电离成一对 H⁺ 和 OH⁻，它们游一会儿又撞到一起变回水分子 —— 两个方向同时进行、速率相等，所以数量始终各 ${KW_BASE} 个。\n` +
+      `这叫动态平衡，此时 c(H⁺) = c(OH⁻) = 1.0×10⁻⁷ mol/L，溶液是中性。`,
   });
 
   if (c.form === 'salt') {
@@ -115,7 +235,7 @@ export function buildScript(c: AcidCase): AcidBeat[] {
     beats.push({
       kind: 'dissolve',
       title: '溶解 · 分子分散',
-      text: `${c.molecule} 以分子形式均匀分散到水分子之间，此刻还没电离，溶液里仍是水自己的 1 : 1。`,
+      text: `${c.molecule} 以分子形式均匀分散到水分子之间，此刻还没电离，溶液里仍是水自己的 ${KW_BASE} : ${KW_BASE}。`,
     });
     beats.push({
       kind: 'ionize',
@@ -177,9 +297,44 @@ export function buildScript(c: AcidCase): AcidBeat[] {
       kind: 'hydrate',
       title: '只水合，不反应',
       text: '这些离子只会把水分子短暂地吸引到身边（水合）：阳离子拉住水的 O 端，阴离子拉住水的 H 端。' +
-        '靠近一下就分开，没有生成新物质，水的 1 : 1 平衡原封不动。',
+        `靠近一下就分开，没有生成新物质，水的 ${KW_BASE} : ${KW_BASE} 平衡原封不动。`,
     });
   }
+
+  /* ---- 离子积：平衡移动，落到满足 Kw 的终态 ---- */
+  const tgt = kwTargetsOf(c);
+  const gen = soluteDeltaOf(c);
+  // 终态满足 h − oh = ΔH − ΔOH（因为结合成水时 H⁺、OH⁻ 等量减少）；
+  // 已有反应放出的量不够，就由溶质继续放（酸性补 H⁺、碱性补 OH⁻），这一步只是把差值补齐。
+  const need = tgt.h - tgt.oh; // >0：净放 H⁺；<0：净放 OH⁻
+  const have = gen.dH - gen.dOH;
+  const addH = Math.max(0, need - have);
+  const addOH = Math.max(0, -need + have);
+  const totalH = gen.dH + addH;
+  const totalOH = gen.dOH + addOH;
+  // 消耗多少对 H⁺ + OH⁻ 才能正好落到终态
+  const quench = Math.max(0, KW_BASE + totalH - tgt.h);
+
+  const ch = fmtConc(tgt.h / KW_BASE);
+  const coh = fmtConc(tgt.oh / KW_BASE);
+  const ratio = Math.max(tgt.h, tgt.oh) / Math.max(1, Math.min(tgt.h, tgt.oh));
+  beats.push({
+    kind: 'kwShift',
+    title: '水的电离平衡被打破 → 左移',
+    text:
+      `溶质往水里放出了 ${totalH > 0 ? `${totalH} 个 H⁺` : ''}${totalH > 0 && totalOH > 0 ? '、' : ''}${totalOH > 0 ? `${totalOH} 个 OH⁻` : ''}，` +
+      `H⁺ 粒子数骤增。溶液不接受这种"拥挤"：大量 H⁺ 撞上水中的 OH⁻，结合成水分子，` +
+      `${quench > 0 ? `共有 ${quench} 对 H⁺ 与 OH⁻ 被"消耗"掉，` : ''}水的电离平衡向左移动（电离速率随之降低）。\n` +
+      `最终结果：H⁺ ${tgt.h} 个 vs OH⁻ ${tgt.oh} 个 —— H⁺ 是 OH⁻ 的 ${ratio} 倍，但 OH⁻ 并没有消失：` +
+      `剩下的每一个 OH⁻ 都来自水分子的电离。\n` +
+      `换成浓度看：c(H⁺) = ${ch} mol/L、c(OH⁻) = ${coh} mol/L，乘积始终 = 1.0×10⁻¹⁴ = Kw。` +
+      `这就是"H⁺ 越多，OH⁻ 越少"的制约关系 —— 不是 OH⁻ 被消灭了，而是它被压到了刚好满足 Kw 的数量。`,
+    addH,
+    addOH,
+    quench,
+    h: tgt.h,
+    oh: tgt.oh,
+  });
 
   beats.push({
     kind: 'tally',
@@ -188,6 +343,12 @@ export function buildScript(c: AcidCase): AcidBeat[] {
   });
 
   return beats;
+}
+
+/** 1 → '1.0×10⁻⁷'、0.25 → '0.25×10⁻⁷' */
+export function fmtConc(v: number): string {
+  const s = v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(1) : String(Number(v.toFixed(2)));
+  return `${s}×10⁻⁷`;
 }
 
 /* ------------------------------------------------------------------ 物质库 */

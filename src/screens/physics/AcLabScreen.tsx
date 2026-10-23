@@ -7,9 +7,16 @@ import Phys3DView from '../../components/Phys3DView';
 import { AC_MODULES, type AcKey } from '../../physics/emContent';
 
 /** 交流电「波形实验室」：四个图表场景，专治瞬时值 / 峰值 / 有效值 / 平均值搅在一起 */
-export default function AcLabScreen({ onBack }: { onBack: () => void }) {
+export default function AcLabScreen({
+  onBack,
+  initialKey,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总等处进入时，直接停在指定模块（默认「电子不动 · 电磁波传能」） */
+  initialKey?: AcKey;
+}) {
   const insets = useSafeAreaInsets();
-  const [mod, setMod] = useState<AcKey>('phasor');
+  const [mod, setMod] = useState<AcKey>(initialKey ?? 'energy');
   const meta = AC_MODULES.find((m) => m.key === mod) || AC_MODULES[0];
 
   // 相量同步

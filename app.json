@@ -16,7 +16,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.rongweiwei.chem3dclassroom",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleLocalizations": ["zh-Hans", "en"],
+        "CFBundleDevelopmentRegion": "zh-Hans"
       }
     },
     "android": {

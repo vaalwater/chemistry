@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Acid3DView from '../components/Acid3DView';
 import AcidConfetti from '../components/AcidConfetti';
+import CanvasPanPad, { type PanDir } from '../components/CanvasPanPad';
 import AcidPracticeView from './AcidPracticeView';
 import { colors, radii, shadow } from '../theme';
 import {
@@ -11,7 +12,9 @@ import {
   caseById,
   CASES,
   GROUP_FILTERS,
+  KW_BASE,
   VERDICT_TONE,
+  fmtConc,
   type AcidCase,
   type Verdict,
 } from '../acid/acidRule';
@@ -36,14 +39,21 @@ const SPEEDS: { v: number; label: string }[] = [
   { v: 1.5, label: '1.5×' },
 ];
 
-export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
+export default function AcidBaseScreen({
+  onBack,
+  initialCaseId,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的物质（如 nh4cl、na2co3） */
+  initialCaseId?: string;
+}) {
   const { width, height: winH } = useWindowDimensions();
   const wide = width >= 720;
   const insets = useSafeAreaInsets();
 
   const [mode, setMode] = useState<Mode>('explore');
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [caseId, setCaseId] = useState<string>(CASES[0].id);
+  const [caseId, setCaseId] = useState<string>(initialCaseId ?? CASES[0].id);
   const [status, setStatus] = useState<Status | null>(null);
   const [speed, setSpeed] = useState<number>(1);
   /** 练习模式下推导出来的物质 + 要跳到第几拍 + 重放用的计数器 */
@@ -82,6 +92,8 @@ export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
   // 拿到宿主 post 句柄后存到这里；ctl 命令用它来发
   const [post, setPost] = useState<(m: object) => void>(() => () => {});
   const handleHostPost = useCallback((p: (m: object) => void) => setPost(() => p), []);
+  /** 画布上的方向盘：平移观察中心（与分子浏览里那组按钮完全一致） */
+  const handlePan = useCallback((dir: PanDir) => post({ cmd: 'view', action: 'pan', dir }), [post]);
 
   const onEvent = useCallback((ev: { ev: string } & Record<string, unknown>) => {
     if (ev.ev === 'acid' || ev.ev === 'ready') {
@@ -113,9 +125,9 @@ export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
     [filter]
   );
 
-  const canvasH = wide ? 430 : Math.max(280, Math.min(420, winH - 360));
-  const h = status?.h ?? 1;
-  const oh = status?.oh ?? 1;
+  const canvasH = wide ? 430 : Math.round(Math.max(280, Math.min(400, winH * 0.42)));
+  const h = status?.h ?? KW_BASE;
+  const oh = status?.oh ?? KW_BASE;
   const maxBar = Math.max(2, h, oh);
 
   return (
@@ -185,6 +197,7 @@ export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
           <View style={styles.canvasCol}>
             <View style={styles.canvasWrap}>
               <Acid3DView command={command} onEvent={onEvent} onHostPost={handleHostPost} />
+              <CanvasPanPad top={8} bottom={8} onPan={handlePan} />
               <View style={styles.hudTop} pointerEvents="none">
                 <CountPill kind="h" count={h} max={maxBar} />
                 <CountPill kind="oh" count={oh} max={maxBar} />
@@ -200,6 +213,7 @@ export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
           <View style={styles.panelCol}>
             <ScrollView contentContainerStyle={styles.panelScroll} showsVerticalScrollIndicator={false}>
               <CaptionCard cur={cur} status={status} />
+              <KwCard h={h} oh={oh} />
               {mode === 'practice' ? (
                 <AcidPracticeView
                   onCaseReady={handlePracticeCase}
@@ -217,10 +231,18 @@ export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
           </View>
         </View>
       ) : (
-        <View style={styles.stageNarrow}>
+        /* 窄屏（手机）：整页统一滚动 —— 画布 + 控制条 + 卡片都在一个 ScrollView 里，
+           否则画布把下方内容挤到屏幕外、剩余高度不够时滚动区直接塌成 0，什么都看不到 */
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.narrowBody}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={[styles.canvasWrapFixed, { height: canvasH }]}>
             <Acid3DView command={command} onEvent={onEvent} onHostPost={handleHostPost} />
-            <View style={styles.hudTop} pointerEvents="none">
+            <CanvasPanPad top={8} bottom={8} onPan={handlePan} />
+            {/* 窄屏 HUD 放画布底部，给顶部居中的上箭头让位 */}
+            <View style={wide ? styles.hudTop : styles.hudBottom} pointerEvents="none">
               <CountPill kind="h" count={h} max={maxBar} />
               <CountPill kind="oh" count={oh} max={maxBar} />
             </View>
@@ -232,23 +254,22 @@ export default function AcidBaseScreen({ onBack }: { onBack: () => void }) {
             onSpeed={setSpeed}
             compact
           />
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.narrowBody}>
-            <CaptionCard cur={cur} status={status} />
-            {mode === 'practice' ? (
-              <AcidPracticeView
-                onCaseReady={handlePracticeCase}
-                onPlayBeat={handlePlayBeat}
-                onCelebrate={handleCelebrate}
-              />
-            ) : (
-              <>
-                <VerdictCard cur={cur} h={h} oh={oh} maxBar={maxBar} />
-                <ExplainCard cur={cur} />
-                <LegendCard />
-              </>
-            )}
-          </ScrollView>
-        </View>
+          <CaptionCard cur={cur} status={status} />
+          <KwCard h={h} oh={oh} />
+          {mode === 'practice' ? (
+            <AcidPracticeView
+              onCaseReady={handlePracticeCase}
+              onPlayBeat={handlePlayBeat}
+              onCelebrate={handleCelebrate}
+            />
+          ) : (
+            <>
+              <VerdictCard cur={cur} h={h} oh={oh} maxBar={maxBar} />
+              <ExplainCard cur={cur} />
+              <LegendCard />
+            </>
+          )}
+        </ScrollView>
       )}
     </View>
   );
@@ -377,6 +398,63 @@ function CaptionCard({ cur, status }: { cur: AcidCase; status: Status | null }) 
       </View>
       <Text style={styles.captionTitle}>{status?.title || cur.headline}</Text>
       <Text style={styles.captionText}>{status?.text || cur.why}</Text>
+    </View>
+  );
+}
+
+/* ---------------- 离子积面板：c(H⁺)·c(OH⁻) = Kw ---------------- */
+function KwCard({ h, oh }: { h: number; oh: number }) {
+  const ch = h / KW_BASE;
+  const coh = oh / KW_BASE;
+  const prod = ch * coh; // 单位 10⁻¹⁴；平衡时恒等于 1
+  const total = Math.max(0.001, ch + coh);
+  const ratio = Math.max(ch, coh) / Math.max(0.001, Math.min(ch, coh));
+  const neutral = Math.abs(ch - coh) < 1e-6;
+  // 乘积回到 1 = 已落回 Kw 平衡；大于 1 = 离子刚放出、平衡还没来得及左移
+  const balanced = Math.abs(prod - 1) < 0.03;
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHead}>
+        <Ionicons name="analytics-outline" size={15} color={colors.accent} />
+        <Text style={styles.cardTitle}>离子积 Kw（25 ℃）</Text>
+        <Text style={styles.cardStep}>粒子数 {h} : {oh}</Text>
+      </View>
+
+      <View style={styles.kwRow}>
+        <Text style={[styles.kwIon, { color: '#c62828' }]}>c(H⁺)</Text>
+        <View style={styles.kwBarWrap}>
+          <View style={[styles.kwBar, { width: `${(ch / total) * 100}%`, backgroundColor: '#c62828' }]} />
+        </View>
+        <Text style={styles.kwVal}>{fmtConc(ch)}</Text>
+      </View>
+      <View style={styles.kwRow}>
+        <Text style={[styles.kwIon, { color: '#1565c0' }]}>c(OH⁻)</Text>
+        <View style={styles.kwBarWrap}>
+          <View style={[styles.kwBar, { width: `${(coh / total) * 100}%`, backgroundColor: '#1565c0' }]} />
+        </View>
+        <Text style={styles.kwVal}>{fmtConc(coh)}</Text>
+      </View>
+
+      <View style={[styles.kwProdBox, !balanced && { backgroundColor: '#FFF6E8' }]}>
+        <Text style={styles.kwProd}>
+          c(H⁺) × c(OH⁻) = {fmtConc(ch).replace('×10⁻⁷', '')} × {fmtConc(coh).replace('×10⁻⁷', '')} × 10⁻¹⁴
+        </Text>
+        <Text style={[styles.kwProdBig, !balanced && { color: '#B26A00' }]}>
+          {balanced
+            ? `= ${prod.toFixed(2)}×10⁻¹⁴ = Kw ✓`
+            : `= ${prod.toFixed(2)}×10⁻¹⁴ ＞ Kw → 平衡正在左移`}
+        </Text>
+      </View>
+      <Text style={styles.kwNote}>
+        {neutral
+          ? '两边相等 → 中性。此时 c(H⁺) = c(OH⁻) = 1.0×10⁻⁷，乘积就是 Kw。'
+          : balanced
+            ? `H⁺ 是 OH⁻ 的 ${ratio.toFixed(ratio < 10 ? 1 : 0)} 倍，OH⁻ 就被压到原来的 1/${ratio.toFixed(ratio < 10 ? 1 : 0)} —— ` +
+              '一个 OH⁻ 都没有凭空消失，剩下的每一个都来自水分子的电离。乘积始终不变，这就是 Kw 的约束。'
+            : '溶质刚放出大量离子、平衡还没来得及响应：此刻乘积暂时大于 Kw，' +
+              '多余的 H⁺ 会立刻撞上 OH⁻ 结合成水（下一拍「平衡左移」），把乘积压回 Kw。'}
+      </Text>
     </View>
   );
 }
@@ -519,7 +597,16 @@ const styles = StyleSheet.create({
   stageWide: { flex: 1, flexDirection: 'row', paddingHorizontal: 14, gap: 12, paddingTop: 6, paddingBottom: 12 },
   canvasCol: { flex: 1, minWidth: 0 },
   canvasWrap: { flex: 1, borderRadius: radii.card, overflow: 'hidden', backgroundColor: '#F2F6FC' },
-  hudTop: { position: 'absolute', top: 8, right: 8, flexDirection: 'row', gap: 6 },
+  /* 两条计数竖排：横排时它们横向铺开，正好压住画布上下居中的方向键箭头 */
+  hudTop: {
+    position: 'absolute', top: 8, right: 8,
+    flexDirection: 'column', alignItems: 'flex-end', gap: 6,
+  },
+  /* 窄屏：HUD 放画布底部，避开顶部居中的上箭头 */
+  hudBottom: {
+    position: 'absolute', bottom: 8, right: 8,
+    flexDirection: 'column', alignItems: 'flex-end', gap: 6,
+  },
   hudPill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(255,255,255,0.86)', borderRadius: 12,
@@ -528,14 +615,37 @@ const styles = StyleSheet.create({
   },
   hudPillT: { fontSize: 11, fontWeight: '800' },
   hudPillBar: { width: 60, height: 6, backgroundColor: '#E3EBF5', borderRadius: 3, overflow: 'hidden' },
+
+  /* 离子积面板 */
+  kwRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  kwIon: { width: 52, fontSize: 12.5, fontWeight: '800' },
+  kwBarWrap: {
+    flex: 1,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#EEF3FA',
+    overflow: 'hidden',
+    marginHorizontal: 8,
+  },
+  kwBar: { height: 10, borderRadius: 5 },
+  kwVal: { width: 74, fontSize: 11.5, fontWeight: '700', color: colors.ink, textAlign: 'right' },
+  kwProdBox: {
+    marginTop: 10,
+    backgroundColor: '#EDF7F4',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  kwProd: { fontSize: 11.5, color: '#00695c', fontWeight: '700', textAlign: 'center' },
+  kwProdBig: { fontSize: 13.5, color: '#00695c', fontWeight: '800', textAlign: 'center', marginTop: 2 },
+  kwNote: { fontSize: 11.5, color: colors.sub, lineHeight: 18, marginTop: 8 },
   panelCol: { width: 286 },
   panelScroll: { gap: 10, paddingBottom: 24 },
 
   /* narrow */
-  stageNarrow: { flex: 1 },
   canvasWrapFixed: {
     alignSelf: 'stretch', borderRadius: radii.card, overflow: 'hidden',
-    marginHorizontal: 12, marginTop: 4, backgroundColor: '#F2F6FC',
+    backgroundColor: '#F2F6FC',
   },
   narrowBody: { paddingHorizontal: 14, paddingTop: 10, gap: 10, paddingBottom: 24 },
 

@@ -10,9 +10,16 @@ type ViewMode = 'lines' | 'equi';
 type SplitMode = 'a' | 'b' | 'sum';
 
 /** 痛点一：3D 场线 + 流光粒子 + 可插拔的场强探针 + 等势面切换 */
-export default function FieldLabScreen({ onBack }: { onBack: () => void }) {
+export default function FieldLabScreen({
+  onBack,
+  initialField,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的场 */
+  initialField?: FieldId;
+}) {
   const insets = useSafeAreaInsets();
-  const [field, setField] = useState<FieldId>('opp');
+  const [field, setField] = useState<FieldId>(initialField ?? 'opp');
   const [view, setView] = useState<ViewMode>('lines');
   const [split, setSplit] = useState<SplitMode>('sum');
   const [probeOn, setProbeOn] = useState(true);

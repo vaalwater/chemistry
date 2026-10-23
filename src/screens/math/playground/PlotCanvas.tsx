@@ -104,13 +104,23 @@ export default function PlotCanvas({
   const [w, setW] = useState(0);
   const [view, setView] = useState<Win | null>(null);
   const [probe, setProbe] = useState<V2 | null>(null);
+  /** 手指 / 鼠标正按在画布上：这段时间降采样，抬手后再画回精细的一版 */
+  const [dragging, setDragging] = useState(false);
   const H = height;
   const win = view ?? base;
 
+  /**
+   * 拖动时按「缩水后的画布尺寸」去采样。
+   * 一条曲线按整屏宽度要采 400+ 个点，每一帧把上千个线段 View 全量重排就会卡；
+   * 拖动中用四成采样率，点少了三倍多，松手再补一次精细的 —— 拖动顺滑，最终画面不变。
+   */
+  const sampleW = dragging ? Math.max(120, Math.round(w * 0.42)) : w;
+  const sampleH = dragging ? Math.max(90, Math.round(H * 0.42)) : H;
+
   /** 曲线在「当前窗口」里重新采样 —— 所以放大之后曲线还是清楚的 */
   const paths = useMemo(
-    () => curves.map((c) => ({ id: c.id, color: c.color, pts: traceCurve(c.c, win, w, H, vars) })),
-    [curves, vars, win, w, H]
+    () => curves.map((c) => ({ id: c.id, color: c.color, pts: traceCurve(c.c, win, sampleW, sampleH, vars) })),
+    [curves, vars, win, sampleW, sampleH]
   );
 
   useEffect(() => {
@@ -163,9 +173,16 @@ export default function PlotCanvas({
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: (_e, gs) => Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4,
+        /**
+         * 画布整个嵌在页面的 ScrollView 里：默认允许中断的话，手指一动
+         * 手势就被容器抢去滚动（带弹性），画布既收不到移动事件、又被滚动抢帧，拖起来就卡。
+         * 这里明确拒绝交出手势，拖动全程留在画布上。
+         */
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: (e) => {
           const t = touch.current;
           const now = Date.now();
+          setDragging(true);
           if (t.moved < 6 && now - t.tapAt < 340) {
             setView(null); // 双击：回到自动取景
             t.tapAt = 0;
@@ -201,6 +218,7 @@ export default function PlotCanvas({
         },
         onPanResponderRelease: (e) => {
           const t = touch.current;
+          setDragging(false); // 松手：按原采样率重画一次，曲线恢复精细
           if (t.moved < 6 && wRef.current > 0) {
             // 一下轻点 = 读这个点的坐标
             const lx = (e.nativeEvent as { locationX?: number }).locationX ?? 0;
@@ -213,6 +231,7 @@ export default function PlotCanvas({
           }
           t.dist = 0;
         },
+        onPanResponderTerminate: () => setDragging(false),
       }),
     [panBy, zoomAt]
   );

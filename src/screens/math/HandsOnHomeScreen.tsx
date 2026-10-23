@@ -28,11 +28,21 @@ const CARDS: {
 ];
 
 /** 数学频道 · 动手子频道 */
-export default function HandsOnHomeScreen({ onBack }: { onBack: () => void }) {
-  const [view, setView] = useState<ViewKey>('home');
+export default function HandsOnHomeScreen({
+  onBack,
+  initialView,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总等处进入时，直接打开「画图」 */
+  initialView?: Exclude<ViewKey, 'home'>;
+}) {
+  const [view, setView] = useState<ViewKey>(initialView ?? 'home');
   const insets = useSafeAreaInsets();
 
-  if (view === 'draw') return <PlaygroundScreen onBack={() => setView('home')} />;
+  // 被外部直接打开「画图」时（比如从知识点汇总点进来），返回就直接离开本页
+  if (view === 'draw') {
+    return <PlaygroundScreen onBack={initialView ? onBack : () => setView('home')} />;
+  }
 
   return (
     <View style={styles.root}>

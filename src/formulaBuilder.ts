@@ -59,10 +59,14 @@ function dirsFor(k: number, fixed: V3[]): V3[] {
 const SYMBOLS = [
   'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca',
   'Mn', 'Fe', 'Cu', 'Zn', 'Ag', 'Ba', 'Br', 'I',
+  // Cr / Pb 是离子方程式的常客（Cr₂O₇²⁻、PbI₂），缺了这两个会导致整式解析直接失败
+  'Cr', 'Pb',
 ];
 export interface CountMap { [el: string]: number; }
 
 const UNI2: Record<string, string> = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9' };
+const SUPNUM: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+const SUPSIGN: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
 export function normalizeFormula(raw: string): string {
   let s = raw.trim().replace(/\s+/g, '');
   s = s.replace(/[₀-₉]/g, (ch) => UNI2[ch] ?? ch);
@@ -164,6 +168,62 @@ export function formulaOfCounts(c: CountMap): string {
     .map((el) => el + ((c[el] || 0) > 1 ? (c[el] || 0) : ''))
     .join('');
 }
+/* ================= 带电荷物种的解析（离子方程式用） ================= */
+export interface Species { counts: CountMap; charge: number; }
+
+/** 把 ⁺/⁻、上标数字、^ 都归一到 ASCII：`SO₄²⁻`→`SO42-`、`MnO4^-`→`MnO4-`。注意不调用 normalizeFormula —— 那个会把电荷的 `-` 当键号删掉。 */
+export function normalizeCharged(raw: string): string {
+  let s = raw.trim().replace(/\s+/g, '');
+  s = s.replace(/[₀-₉]/g, (ch) => UNI2[ch] ?? ch);
+  s = s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (ch) => SUPNUM[ch] ?? ch);
+  s = s.replace(/[⁺]/g, '+').replace(/[⁻]/g, '-');
+  s = s.replace(/\^+/g, '');
+  return s;
+}
+
+/** 净电荷 → 上标串：+1→⁺、-2→²⁻ */
+export function chargeMark(q: number): string {
+  if (!q) return '';
+  const sign = q > 0 ? '⁺' : '⁻';
+  const abs = Math.abs(q);
+  if (abs === 1) return sign;
+  return String(abs).replace(/\d/g, (d) => SUPSIGN[d] ?? d) + sign;
+}
+
+/** 带电荷物种的展示式：('MnO4', -1) → MnO₄⁻ */
+export function displaySpecies(asciiBody: string, charge: number): string {
+  return displayFormula(asciiBody) + chargeMark(charge);
+}
+
+export interface ChargeSplit {
+  sign: 1 | -1;
+  /** 去掉电荷符号后的候选主体，按优先级排列，n 为该候选对应的电荷绝对值 */
+  cands: { body: string; n: number }[];
+}
+/**
+ * 从写法里剥离尾部电荷（纯语法层，不含化学知识）。
+ * ⚠️ `SO42-`（2 是电荷数）与 `MnO4-`（4 是下标）去掉符号后**无法从句法上区分**，
+ * 所以返回两个候选交给调用方结合已知离子表裁定：
+ * - cand[0]：末尾一位数字当作电荷数 → body=`SO4`, n=2
+ * - cand[1]：末尾数字全是下标、电荷为 1 → body=`MnO4`, n=1
+ * 若字符串末尾不是 +/-（如 H2O、Cl2）返回 null，表示中性物种。
+ */
+export function splitCharge(raw: string): ChargeSplit | null {
+  const s = normalizeCharged(raw);
+  const m = s.match(/^([A-Za-z0-9()]+?)([0-9]*)([+-])$/);
+  if (!m) return null;
+  const [, head, digit, signCh] = m;
+  const sign: 1 | -1 = signCh === '+' ? 1 : -1;
+  const cands: { body: string; n: number }[] = [];
+  if (digit.length) {
+    const n = Number(digit[digit.length - 1]);
+    const body = head + digit.slice(0, -1);
+    if (body && n >= 1) cands.push({ body, n });
+  }
+  if (head + digit) cands.push({ body: head + digit, n: 1 });
+  return cands.length ? { sign, cands } : null;
+}
+
 export function sameFormula(aRaw: string, bRaw: string): boolean {
   const ca = parseCounts(aRaw);
   const cb = parseCounts(bRaw);

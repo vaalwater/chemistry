@@ -7,7 +7,7 @@
  * 这样无论猜对猜错，最后看到的都是真实发生的过程。
  * ========================================================================= */
 
-import { buildScript, type AcidBeat, type AcidCase } from './acidRule';
+import { buildScript, kwTargetsOf, type AcidBeat, type AcidCase } from './acidRule';
 
 export type QuizKey = 'ionizeDegree' | 'hydrolysis' | 'ionization' | 'compete' | 'verdict';
 
@@ -166,8 +166,12 @@ function verdictStep(c: AcidCase): QuizStep {
     bits.push(`${h.ion} 水解放出 ${h.release === 'H' ? 'H⁺' : 'OH⁻'}`);
   });
   if (ion) bits.push(`${ion.ion} 电离放出 H⁺`);
+  const kw = kwTargetsOf(c);
+  const kwNote = kw.h === kw.oh
+    ? '两边仍然相等，c(H⁺) = c(OH⁻) = 1.0×10⁻⁷，正好落在 Kw 上'
+    : `此时 c(H⁺)·c(OH⁻) 仍然等于 Kw = 1.0×10⁻¹⁴：H⁺ 多出来的这些，全靠把 OH⁻ 压到原来的 ${(Math.max(kw.h, kw.oh) / Math.min(kw.h, kw.oh)).toFixed(1)} 分之一换来的`;
   const explain = bits.length
-    ? `${bits.join('，')}。把水的 1 : 1 平衡打破之后，${c.verdict === 'acid' ? 'H⁺ 比 OH⁻ 多 → 酸性' : c.verdict === 'base' ? 'OH⁻ 比 H⁺ 多 → 碱性' : '两边放出的量大致抵消 → 接近中性'}。${c.headline}`
+    ? `${bits.join('，')}。把水自身的电离平衡打破之后，${c.verdict === 'acid' ? 'H⁺ 比 OH⁻ 多 → 酸性' : c.verdict === 'base' ? 'OH⁻ 比 H⁺ 多 → 碱性' : '两边放出的量大致抵消 → 接近中性'}。${kwNote}。${c.headline}`
     : `${c.headline}`;
   return {
     key: 'verdict',

@@ -1,7 +1,11 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
+
+/** ICP 备案号（国内上架必需，公示在关于页底部），点击跳工信部备案查询 */
+const ICP = '京ICP备2022030419号-4A';
+const ICP_URL = 'https://beian.miit.gov.cn';
 
 const sections: { title: string; body: string }[] = [
   {
@@ -30,7 +34,13 @@ const sections: { title: string; body: string }[] = [
   },
 ];
 
-export default function AboutScreen({ onBack }: { onBack: () => void }) {
+export default function AboutScreen({
+  onBack,
+  onOpenPrivacy,
+}: {
+  onBack: () => void;
+  onOpenPrivacy: () => void;
+}) {
   const insets = useSafeAreaInsets();
   return (
     <View style={styles.container}>
@@ -50,6 +60,29 @@ export default function AboutScreen({ onBack }: { onBack: () => void }) {
             <Text style={styles.cardBody}>{s.body}</Text>
           </View>
         ))}
+        {/* 上架必需：隐私政策入口 */}
+        <Pressable
+          style={styles.linkCard}
+          onPress={onOpenPrivacy}
+          accessibilityRole="button"
+          accessibilityLabel="查看隐私政策"
+        >
+          <Ionicons name="shield-checkmark-outline" size={18} color={colors.accent} />
+          <View style={styles.linkTextCol}>
+            <Text style={styles.linkTitle}>隐私政策</Text>
+            <Text style={styles.linkSub}>我们收集什么、不收集什么，都写在这一页</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.faint} />
+        </Pressable>
+        {/* 备案信息：点击跳转工信部 ICP/IP 地址/域名信息备案管理系统 */}
+        <Pressable
+          style={styles.beianRow}
+          onPress={() => Linking.openURL(ICP_URL).catch(() => {})}
+          accessibilityRole="link"
+          accessibilityLabel={`ICP 备案号 ${ICP}，跳转工信部备案查询`}
+        >
+          <Text style={styles.beianText}>{ICP}</Text>
+        </Pressable>
         <View style={{ height: 24 }} />
       </ScrollView>
     </View>
@@ -72,4 +105,22 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
   cardBody: { fontSize: 13, lineHeight: 21, color: colors.sub, marginTop: 8 },
+  linkCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
+  },
+  linkTextCol: { flex: 1, marginLeft: 10 },
+  linkTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  linkSub: { fontSize: 12, color: colors.sub, marginTop: 3 },
+  beianRow: { alignItems: 'center', paddingVertical: 10 },
+  beianText: {
+    fontSize: 12.5,
+    color: colors.sub,
+    textDecorationLine: 'underline',
+    letterSpacing: 0.3,
+  },
 });

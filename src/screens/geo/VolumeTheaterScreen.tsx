@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
-import Geo3DView from '../../components/Geo3DView';
+import Geo3DView, { type Geo3DHandle } from '../../components/Geo3DView';
+import CanvasPanPad, { type PanDir } from '../../components/CanvasPanPad';
 import { VOLUME_SHOWS } from '../../geometry/geoContent';
 
 const SLIDER_STEPS = [
@@ -14,12 +15,27 @@ const SLIDER_STEPS = [
 ];
 
 /** 痛点四：体积公式推导剧场（先猜后验 + 分步动画 + 可拖动截面） */
-export default function VolumeTheaterScreen({ onBack }: { onBack: () => void }) {
+export default function VolumeTheaterScreen({
+  onBack,
+  initialId,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的剧场条目（pyramid / cone / sphere） */
+  initialId?: string;
+}) {
   const insets = useSafeAreaInsets();
-  const [idx, setIdx] = useState(0);
+  const [idx, setIdx] = useState(() => {
+    const i = initialId ? VOLUME_SHOWS.findIndex((s) => s.id === initialId) : -1;
+    return i >= 0 ? i : 0;
+  });
   const [step, setStep] = useState(1);
   const [guess, setGuess] = useState<number | null>(null);
   const [t, setT] = useState(0.4);
+  const geoRef = useRef<Geo3DHandle | null>(null);
+  const handlePan = useCallback(
+    (dir: PanDir) => geoRef.current?.send({ cmd: 'geo', action: 'view', pan: dir }),
+    []
+  );
 
   const show = VOLUME_SHOWS[idx];
   const command = useMemo(
@@ -47,7 +63,8 @@ export default function VolumeTheaterScreen({ onBack }: { onBack: () => void }) 
       </View>
 
       <View style={styles.viewWrap}>
-        <Geo3DView command={command} onEvent={() => {}} />
+        <Geo3DView ref={geoRef} command={command} onEvent={() => {}} />
+        <CanvasPanPad top={8} bottom={8} onPan={handlePan} />
       </View>
 
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelInner} showsVerticalScrollIndicator={false}>

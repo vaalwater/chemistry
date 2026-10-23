@@ -18,9 +18,16 @@ const DIR_OPTS: { k: string; label: string }[] = [
 ];
 
 /** 痛点二：三条定则各配一个可交互场景，先自己判断、App 当场判定，反例开关治"漏看条件" */
-export default function RuleTrainerScreen({ onBack }: { onBack: () => void }) {
+export default function RuleTrainerScreen({
+  onBack,
+  initialRule,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的定则 */
+  initialRule?: RuleKey;
+}) {
   const insets = useSafeAreaInsets();
-  const [rule, setRule] = useState<RuleKey>('ampere');
+  const [rule, setRule] = useState<RuleKey>(initialRule ?? 'ampere');
   const meta = RULES.find((r) => r.key === rule) || RULES[0];
 
   // ampere

@@ -77,6 +77,155 @@
     spr.scale.set((w / h) * worldH, worldH, 1);
     return spr;
   }
+  /** 圆角矩形路径（手写而不用 roundRect，兼容老版本 WebKit） */
+  function roundRectPath(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  /**
+   * 「可点击」的胶囊标签（画布上的物质名称）。
+   *
+   * ⚠️ 以前这就是一行纯文字，和画面里其它标注没有任何区别 ——
+   *    明明点了能打开该物质的 3D 结构页，却没人看得出来。
+   *    现在画成白底描边的胶囊 + 链接蓝文字 + 末尾的 › 箭头；
+   *    › 是 iOS 列表里「还能往下钻」的通用记号，一眼就能认出可以点。
+   */
+  function chipSprite(str, opts) {
+    opts = opts || {};
+    var color = opts.color || '#2f6bd8';
+    var size = opts.size || 30;
+    var fam = '700 %spx -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif';
+    var font = fam.replace('%s', String(size));
+    var arrowFont = fam.replace('%s', String(size + 10));
+    var cv = document.createElement('canvas');
+    var ctx = cv.getContext('2d');
+
+    ctx.font = font;
+    var tw = Math.ceil(ctx.measureText(str).width);
+    ctx.font = arrowFont;
+    var aw = Math.ceil(ctx.measureText('›').width);
+
+    var padX = 22, gap = 8;
+    var w = padX * 2 + tw + gap + aw;
+    var h = Math.ceil(size * 1.85);
+    cv.width = w; cv.height = h;   // 改尺寸会重置画布状态，所以字体/样式要在之后重设
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    roundRectPath(ctx, 2, 2, w - 4, h - 4, (h - 4) / 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(64,116,214,0.6)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.fillText(str, padX, h / 2 + 1);
+    ctx.font = arrowFont;
+    ctx.fillStyle = 'rgba(47,107,216,0.72)';
+    ctx.fillText('›', padX + tw + gap, h / 2 + 1);
+
+    var tex = new THREE.CanvasTexture(cv);
+    tex.minFilter = THREE.LinearFilter;
+    var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    var worldH = opts.worldH || 0.62;
+    spr.userData = { color: color, size: size, bold: true, worldH: worldH };
+    spr.scale.set((w / h) * worldH, worldH, 1);
+    return spr;
+  }
+
+  /* ---------- 离子的价电子标记：失去 / 得到的电子要在 3D 上看得见 ---------- */
+
+  // 配色与 SceneScreen 里的价态徽章保持一致：阳离子暖色（失电子留下的空位），阴离子冷色（多出来的电子）
+  var C_CATION = 0xd9622a;
+  var C_ANION = 0x2f6bd8;
+
+  /** 斐波那契球面点阵，用来画「点勾出的空心球」——比虚线更醒目，也不受 WebGL 线宽恒为 1px 的限制 */
+  function dotSphereGeom(r, n) {
+    var pts = new Float32Array(n * 3);
+    var golden = 2.39996323;
+    for (var i = 0; i < n; i++) {
+      var t = n > 1 ? i / (n - 1) : 0.5;
+      var y = 1 - t * 2;
+      var rr = Math.sqrt(Math.max(0, 1 - y * y));
+      var th = golden * i;
+      pts[i * 3] = Math.cos(th) * rr * r;
+      pts[i * 3 + 1] = y * r;
+      pts[i * 3 + 2] = Math.sin(th) * rr * r;
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    return geo;
+  }
+
+  /**
+   * 离子的价态：在分子外围摆一圈电子标记，**个数就是价位**（Fe³⁺ 围 3 个、SO₄²⁻ 围 2 个）。
+   *
+   * ⚠️ 别指望化学式里那个小上标 —— 3D 里既看不清也读不出是几价，而离子方程式恰恰全靠价态配平。
+   *
+   * 阳离子（失电子）→ 点阵勾出的**空心**球：那儿本来有电子，现在空了；
+   * 阴离子（得电子）→ **实心**小球：确实多出来的电子。
+   */
+  function addChargeShell(root, mol, opts) {
+    var q = mol && typeof mol.charge === 'number' ? Math.round(mol.charge) : 0;
+    if (!q) return null;
+    opts = opts || {};
+    var n = Math.min(6, Math.abs(q));      // 再多就太挤，6 个封顶
+    var cation = q > 0;
+    var markR = opts.markR || (cation ? 0.3 : 0.24);
+    var ring = (opts.baseR || 1.7) + markR + (opts.gap !== undefined ? opts.gap : 0.42);
+    var g = new THREE.Group();
+    g.userData.chargeShell = true;
+    for (var i = 0; i < n; i++) {
+      var a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      var mark;
+      if (cation) {
+        mark = new THREE.Points(
+          dotSphereGeom(markR, 30),
+          new THREE.PointsMaterial({
+            color: C_CATION,
+            size: opts.dot || 0.055,
+            sizeAttenuation: true,
+            transparent: true,
+            opacity: 0.98,
+          })
+        );
+      } else {
+        mark = new THREE.Mesh(ballGeo(markR), stdMat(C_ANION, { roughness: 0.3 }));
+      }
+      // 稍微绕着分子上下起伏排布，避免正视时被分子本身挡住
+      mark.position.set(Math.cos(a) * ring, Math.sin(a) * ring * 0.26, Math.sin(a) * ring);
+      g.add(mark);
+    }
+    root.add(g);
+    return g;
+  }
+
+  /** 物体的包围半径（用于确定电子标记摆多远，别糊在分子身上） */
+  function objectRadius(obj) {
+    try {
+      obj.updateMatrixWorld(true);
+      var box = new THREE.Box3().setFromObject(obj);
+      if (box.isEmpty()) return 1.7;
+      return box.getBoundingSphere(new THREE.Sphere()).radius;
+    } catch (e) {
+      return 1.7;
+    }
+  }
+
   // 重绘已有文字精灵的内容（用于把“Zn”更新为“Zn²⁺”等）
   function setSpriteText(spr, str, colorOverride) {
     if (!spr) return;
@@ -659,6 +808,7 @@
     camTarget.copy(c);
     camTargetGoal.copy(c);
     view.homeTarget = c.clone();
+    view.fitCenter = c.clone(); // 取景用的内容中心（含 lift 的 homeTarget 会被改写，单独留一份）
     view.fitR = r;
     view.minR = minR || 1.2;
     camState.radius = fitDistance(r);
@@ -692,6 +842,32 @@
     camTarget.set(0, -lift, 0);
     camTargetGoal.set(0, -lift, 0);
     view.homeTarget = new THREE.Vector3(0, -lift, 0);
+    clampCam();
+  }
+
+  /* 分子视图取景：与原子同一套“上下遮挡带”算法。
+   * 之前分子只按整屏取景，落在屏幕正中，而底部说明卡正好压住下半屏 ——
+   * 看起来就是“分子偏下”，收起卡片后才回到可视带中央。现在不管卡片收不收起都按可视带走。 */
+  function frameMoleculeView() {
+    if (!view || view.kind !== 'molecule') return;
+    var r = view.fitR || 1.2;
+    var top = clamp(rxBand.top || 0, 0, 0.4);
+    var bottom = clamp(rxBand.bottom || 0, 0, 0.6);
+    // 竖屏上说明卡可能占掉一半屏高，这里给可视带留个下限，别把分子缩得太小
+    var usable = clamp(1 - top - bottom, 0.5, 1);
+    var vHalf = (camera.fov * Math.PI) / 360;
+    var hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+    var needH = (r * 1.15) / Math.sin(hHalf);            // 横向不被裁
+    var needV = (r * 1.06) / (Math.tan(vHalf) * usable); // 纵向装进可视带
+    var need = Math.max(needH, needV);
+    camState.radius = need;
+    var visH = 2 * need * Math.tan(vHalf);
+    var lift = visH * Math.max(0, (bottom - top) / 2);
+    var c = view.fitCenter || new THREE.Vector3();
+    // 观察中心下移 lift 即把分子抬到可视带中央
+    camTarget.set(c.x, c.y - lift, c.z);
+    camTargetGoal.set(c.x, c.y - lift, c.z);
+    view.homeTarget = new THREE.Vector3(c.x, c.y - lift, c.z);
     clampCam();
   }
 
@@ -825,6 +1001,8 @@
     var root = built.root;
     setViewRotation(root, mol.view);
     sceneRoot.add(root);
+    // 离子的价电子标记要挂在分子之外看得见的位置；中性分子不加（mol.charge 为 0 / 缺省）
+    addChargeShell(root, mol, { baseR: objectRadius(root) * 0.86 });
     view = {
       kind: 'molecule', id: id, root: root,
       atomMeshes: built.meshes,
@@ -856,6 +1034,10 @@
       }
     }
     fitView(root);
+    // 再按上下可视带（顶部导航 ~ 底部说明卡）取景：卡片展开时分子也要落在“看得见的那一条”中央
+    view.bandTop = rxBand.top;
+    view.bandBottom = rxBand.bottom;
+    frameMoleculeView();
     // 球棍模型：在原子球上方加元素符号标注（原子多的结构用 mol.noLabels 关掉）
     if (mol.scene !== 'lattice' && !mol.noLabels) {
       var labels = buildMoleculeLabels(mol);
@@ -2118,19 +2300,34 @@
     buildReactionScene(id, rx);
   }
 
-  function buildIonPair() {
+  /**
+   * ⚠️ 这里原来把元素写死成 Na / Cl：任何没有几何数据的离子物种（例如新增的 MnO₄⁻）
+   * 都会被画成同一对 NaCl 假球，和用户写的分子式毫无关系，而且极难发现。
+   * 现在按分子式里实际出现的元素来画，取不到时才回退到 Na/Cl。
+   */
+  function ionSymbolsOf(m) {
+    var raw = '';
+    if (m) raw = String(m.formulaAscii || m.formula || '');
+    var found = raw.match(/[A-Z][a-z]?/g) || [];
+    if (found.length >= 2) return [found[0], found[1]];
+    if (found.length === 1) return [found[0], found[0]];
+    return ['Na', 'Cl'];
+  }
+
+  function buildIonPair(m) {
     var root = new THREE.Group();
-    var na = elemMap.Na, cl = elemMap.Cl;
-    var m1 = new THREE.Mesh(ballGeo(0.9), stdMat(colorOf('Na')));
+    var syms = ionSymbolsOf(m);
+    var cat = syms[0], an = syms[1];
+    var m1 = new THREE.Mesh(ballGeo(0.9), stdMat(colorOf(cat)));
     m1.position.x = -1.1;
     root.add(m1);
-    var m2 = new THREE.Mesh(ballGeo(1.05), stdMat(colorOf('Cl')));
+    var m2 = new THREE.Mesh(ballGeo(1.05), stdMat(colorOf(an)));
     m2.position.x = 1.3;
     root.add(m2);
     // 简化表示键
     var g = buildBond(null, m1.position.clone(), m2.position.clone(), 0, 'ionic');
     root.add(g);
-    // 电荷标注由宿主提供，这里加简单 ±
+    // 整体净电荷由 mol.formula（含 ⁻⁺ 上标）的分子式标签负责显示
     var p = textSprite('+', { size: 30, worldH: 0.34, color: '#4660c0' });
     p.position.set(-1.1, 1.15, 0);
     root.add(p);
@@ -2208,35 +2405,137 @@
     var root = new THREE.Group();
     sceneRoot.add(root);
     // —— 布局：把物种按份数展开为“单元”，左反应物 / 右产物 ——
+    var ORIGIN_OFF = { x: 0, y: 0, z: 0 };
+    /** 把「团内偏移」叠加到 vecAt 算出的世界坐标上（x 已并入 u.x，这里只补 y / z） */
+    function offsetVec(v, off) {
+      if (!off) return v;
+      v.y += off.y;
+      v.z += off.z;
+      return v;
+    }
+
     function unitList(specs) {
       var out = [];
       specs.forEach(function (s, si) {
-        for (var c = 0; c < (s.count || 1); c++) out.push({ s: s, si: si });
+        var n = Math.max(1, s.count || 1);
+        for (var c = 0; c < n; c++) out.push({ s: s, si: si, ci: c, cN: n });
       });
       return out;
     }
+
+    /**
+     * 同一个物种的好几份（5Fe²⁺、8H⁺…）在「团」内的相对位置，近似球状分布。
+     *
+     * ⚠️ 以前是把每一份都**横向排成一列**：8 个 H⁺ 就是横着摆 8 个球，
+     *    行宽随份数线性增长，而离子方程式常常一次出现七八份，
+     *    结果相机为了把整行装进画面只能退得很远，屏幕上的分子只剩几个小点、什么都看不清。
+     *    聚成团以后，团的整体宽度只随份数的平方根缓慢增长。
+     */
+    function clusterOffsets(n, step) {
+      if (n <= 1) return [{ x: 0, y: 0, z: 0 }];
+      if (n === 2) {
+        return [
+          { x: -step * 0.5, y: step * 0.42, z: 0 },
+          { x: step * 0.5, y: -step * 0.42, z: 0 },
+        ];
+      }
+      if (n === 3) {
+        return [
+          { x: 0, y: step * 0.62, z: 0 },
+          { x: -step * 0.55, y: -step * 0.34, z: step * 0.3 },
+          { x: step * 0.55, y: -step * 0.34, z: -step * 0.3 },
+        ];
+      }
+      // 4 份及以上：斐波那契球面均匀分布。
+      // 半径由「相邻两份不能挤在一起」反推：球面上 n 点的最近邻间距约 2r/√n，
+      // 要它不小于一份的宽度 step，就得 r ≈ step·√n / 2，这里取 0.55 留一点余量。
+      var golden = 2.39996323;
+      var r = step * 0.55 * Math.sqrt(n);
+      var pts = [];
+      for (var i = 0; i < n; i++) {
+        var y = 1 - (i / (n - 1)) * 2;                       // -1 → 1
+        var rr = Math.sqrt(Math.max(0, 1 - y * y));
+        var th = golden * i;
+        pts.push({ x: Math.cos(th) * rr * r, y: y * r * 0.92, z: Math.sin(th) * rr * r });
+      }
+      return pts;
+    }
+
     function rowX(specs, side) {
       // 版面：先构建单元（拿到真实包围尺寸），再按实测大小紧凑排版。
       // 旧的“按原子个数估算宽度”会把整行拉得非常宽，手机竖屏上相机被迫退得很远，分子只剩一小点。
-      var units = unitList(specs).map(function (o) { return { s: o.s, si: o.si, u: rxnBuildMol(o.s) }; });
-      if (!units.length) return [];
-      var GAP = 0.9;         // 单元之间的空隙（' + ' 号要占位）
-      var ARROW_EDGE = 2.15; // 行边缘到反应箭头中心的距离
-      var widths = units.map(function (o) {
-        // 半宽 = |包围球中心偏移| + 半径（不重新居中，避免与自由原子的目标坐标错位）
-        return Math.max(1.7, (Math.abs(o.u.cen ? o.u.cen.x : 0) + o.u.R) * o.u.sc * 2);
+      var units = unitList(specs).map(function (o) {
+        return { s: o.s, si: o.si, ci: o.ci, cN: o.cN, u: rxnBuildMol(o.s) };
       });
-      var xs = [], acc = widths[0] / 2;
-      units.forEach(function (o, i) {
-        if (i > 0) acc += widths[i - 1] / 2 + GAP + widths[i] / 2;
-        xs.push(acc);
+      if (!units.length) return [];
+      var GAP = 0.9;         // 团之间的空隙（' + ' 号要占位）
+      var ARROW_EDGE = 2.15; // 行边缘到反应箭头中心的距离
+      // 半宽 = |包围球中心偏移| + 半径（不重新居中，避免与自由原子的目标坐标错位）
+      var unitW = function (o) {
+        return Math.max(1.7, (Math.abs(o.u.cen ? o.u.cen.x : 0) + o.u.R) * o.u.sc * 2);
+      };
+
+      // 按物种分组：同一物种的若干份聚成一团，团作为一个整体参与排版
+      var groups = [];
+      var bySi = {};
+      units.forEach(function (o) {
+        if (!(o.si in bySi)) {
+          bySi[o.si] = { si: o.si, idx: [] };
+          groups.push(bySi[o.si]);
+        }
+        bySi[o.si].idx.push(o);
+      });
+
+      groups.forEach(function (g) {
+        var w0 = unitW(g.idx[0]);
+        var offs = clusterOffsets(g.idx.length, w0 * 0.92);
+        var minX = Infinity, maxX = -Infinity, minY = Infinity;
+        g.idx.forEach(function (o, k) {
+          o.off = offs[k];
+          minX = Math.min(minX, offs[k].x);
+          maxX = Math.max(maxX, offs[k].x);
+          minY = Math.min(minY, offs[k].y);
+        });
+        g.step = w0 * 0.92;
+        g.w0 = w0;
+        // 团的实际水平跨距（比 n 份横向铺开窄得多）
+        g.w = maxX - minX + w0;
+        // 标签挂在团里最靠下的那一份下方，免得压住团里的其它份
+        g.headK = 0;
+        g.idx.forEach(function (o, k) {
+          if (offs[k].y < offs[g.headK].y) g.headK = k;
+        });
+      });
+
+      var gxs = [], acc = groups[0].w / 2;
+      groups.forEach(function (g, gi) {
+        if (gi > 0) acc += groups[gi - 1].w / 2 + GAP + g.w / 2;
+        gxs.push(acc);
       });
       // 行先以自身中线归零，再贴到箭头左侧/右侧
-      var total = xs[xs.length - 1] + widths[widths.length - 1] / 2;
-      var center = side < 0 ? -(ARROW_EDGE + total / 2) : (ARROW_EDGE + total / 2);
-      return units.map(function (o, i) {
-        return { x: xs[i] - total / 2 + center, w: widths[i], u: o.u, si: o.si };
+      var total = gxs[gxs.length - 1] + groups[groups.length - 1].w / 2;
+      var center = side < 0 ? -(ARROW_EDGE + total / 2) : ARROW_EDGE + total / 2;
+
+      var out = [];
+      groups.forEach(function (g, gi) {
+        var gx = gxs[gi] - total / 2 + center;
+        g.gx = gx;
+        g.idx.forEach(function (o, k) {
+          out.push({
+            x: gx + o.off.x,
+            w: g.w0,
+            u: o.u,
+            si: o.si,
+            gi: gi,
+            gx: gx,
+            gw: g.w,
+            off: o.off,
+            head: k === g.headK,
+            count: g.idx.length,
+          });
+        });
       });
+      return out;
     }
     // 统一放缩：分子/离子对/晶体，按包围球归一到视觉合适尺寸
     function unitScale(s) {
@@ -2271,9 +2570,16 @@
       return new THREE.Vector3(a.pos[0] * sc + x, a.pos[1] * sc + 0.05, a.pos[2] * sc);
     }
     // 分子式标签：位于单元下方，可点击打开该分子 3D 结构页
-    function unitFormulaLabel(u) {
-      var lab = textSprite(u.mol.formula, { size: 30, worldH: 0.55, color: '#41557a', bold: true });
-      lab.position.set(0, (-u.R * u.sc - 0.78) / u.sc, 0);
+    /**
+     * 聚成一团时只在团下方标一次，并且**带上系数** —— 「5Fe²⁺」比「团里全是 Fe²⁺」
+     * 更贴合方程式的写法，也让五份是一组这件事一眼可读。
+     */
+    function unitFormulaLabel(u, head, n) {
+      if (head === false) return;
+      var txt = n > 1 ? n + u.mol.formula : u.mol.formula;
+      // 胶囊样式：纯文字标签看不出可以点，这里是画布上唯一能进到该物质 3D 结构的入口
+      var lab = chipSprite(txt, { size: 30, worldH: 0.66, color: '#2f6bd8' });
+      lab.position.set(0, (-u.R * u.sc - 0.86) / u.sc, 0);
       u.g.add(lab);
       lab.visible = false;
       lab.userData.molId = u.mol.id;
@@ -2295,18 +2601,21 @@
     // 布局坐标实际以箭头为中心（左右各留 ARROW_EDGE 的基线，再按实测宽度错开）
     LH.forEach(function (o) {
       var u = o.u; // 单元已在排版阶段构建好
+      var off = o.off || ORIGIN_OFF;
       u.x = o.x; u.isLhs = true;
-      u.g.position.set(u.x, 0.05, 0);
+      u.off = off;
+      u.g.position.set(u.x, 0.05 + off.y, off.z);
       u.g.scale.setScalar(u.sc);
       setOpacityDeep(u.g, 0);
       root.add(u.g);
-      unitFormulaLabel(u);
+      unitFormulaLabel(u, o.head, o.count);
       lhsUnits.push(u);
       // 每个原子注册为自由原子
       if (u.mol.atoms && u.mol.atoms.length && u.mol.scene !== 'lattice' && u.mol.id !== 'nacl') {
         u.mol.atoms.forEach(function (a, ai) {
           var c3 = colorOf(a.el);
-          var base = vecAt(u.mol, ai, u.sc, u.x);
+          // 自由原子要落在「它所在的那一团」的真实位置上，否则 transfer 时原子会从别处飞过来
+          var base = offsetVec(vecAt(u.mol, ai, u.sc, u.x), off);
           var rad = (elemMap[a.el] ? elemMap[a.el].radius : 0.4) * 0.86 * u.sc;
           var mesh = new THREE.Mesh(ballGeo(Math.max(rad, 0.26)), stdMat(c3));
           mesh.position.copy(base);
@@ -2317,15 +2626,15 @@
           var elLab = textSprite(a.el, { size: 30, worldH: 0.4, color: '#22334f', bold: true });
           elLab.visible = false;
           root.add(elLab);
-          var off = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(0.95);
-          frags.push({ el: a.el, mesh: mesh, lab: elLab, base: base.clone(), off: off, q: 0, target: base.clone(), matched: false, spin: 0.5 + Math.random() * 0.8 });
+          var jit = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(0.95);
+          frags.push({ el: a.el, mesh: mesh, lab: elLab, base: base.clone(), off: jit, q: 0, target: base.clone(), matched: false, spin: 0.5 + Math.random() * 0.8 });
         });
         // 记录该反应物共价键的键中点：断键时橙红色电子对从键中央飞回两端原子
         u.bondSeeds = [];
         u.mol.bonds.forEach(function (b) {
           if (!b.order) return;
-          var pa = vecAt(u.mol, b.a, u.sc, u.x);
-          var pb = vecAt(u.mol, b.b, u.sc, u.x);
+          var pa = offsetVec(vecAt(u.mol, b.a, u.sc, u.x), off);
+          var pb = offsetVec(vecAt(u.mol, b.b, u.sc, u.x), off);
           bondPairPoints(pa, pb, b.order).forEach(function (pt) {
             u.bondSeeds.push({ pos: pt.clone(), ends: [pa.clone(), pb.clone()] });
           });
@@ -2334,12 +2643,14 @@
     });
     RH.forEach(function (o) {
       var u = o.u;
+      var off = o.off || ORIGIN_OFF;
       u.x = o.x; u.isLhs = false;
-      u.g.position.set(u.x, 0.05, 0);
+      u.off = off;
+      u.g.position.set(u.x, 0.05 + off.y, off.z);
       u.g.scale.setScalar(u.sc);
       setOpacityDeep(u.g, 0);
       root.add(u.g);
-      unitFormulaLabel(u);
+      unitFormulaLabel(u, o.head, o.count);
       rhsUnits.push(u);
       // 每根成键的“共用电子对”（先隐藏）
       if (u.mol.atoms && u.mol.bonds) {
@@ -2360,11 +2671,13 @@
       }
     });
     // 反应物分子之间的 '+' 装饰（仅在不同物种之间）
+    // ⚠️ 要按「团」的边界算，不能按单份：同一团里的几份之间是不加 + 号的
     function plusBetween(rowArr, side) {
       for (var i = 0; i < rowArr.length - 1; i++) {
-        if (rowArr[i].u.si === rowArr[i + 1].u.si) continue;
-        var m1 = rowArr[i].x + rowArr[i].w / 2;
-        var m2 = rowArr[i + 1].x - rowArr[i + 1].w / 2;
+        var a = rowArr[i], b = rowArr[i + 1];
+        if (a.gi === b.gi) continue;
+        var m1 = a.gx + a.gw / 2;
+        var m2 = b.gx - b.gw / 2;
         addPlus((m1 + m2) / 2, side);
       }
     }
@@ -3111,6 +3424,11 @@
             view.bandTop = rxBand.top;
             view.bandBottom = rxBand.bottom;
             if (!userZoomed) frameAtomView();
+          } else if (view && view.kind === 'molecule') {
+            // 分子同理：说明卡收起 / 展开时都要重新把分子放进可视带中央
+            view.bandTop = rxBand.top;
+            view.bandBottom = rxBand.bottom;
+            if (!userZoomed) frameMoleculeView();
           }
         }
       }

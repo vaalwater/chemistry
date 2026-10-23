@@ -18,9 +18,17 @@ import type {
   ReactionData,
   ReactionDrama,
   ReactionDramaSpecies,
+  ReactionEnv,
   DramaStep,
   ElectronTransfer,
 } from './types';
+import {
+  deriveIonic,
+  ionicError,
+  parseIonPart,
+  planToDrama,
+  type IonInput,
+} from './ionReactions';
 
 type MaybeDrama = { drama: ReactionDrama | null; error?: string; note?: string };
 
@@ -482,7 +490,19 @@ export function dramaForKnownReaction(rx: ReactionData): ReactionDrama | null {
 }
 
 /* ---------------- 匹配/推导主入口 ---------------- */
-export function deriveDramaFromInputs(rawA: string, rawB: string): MaybeDrama {
+export interface DeriveOptions {
+  /** 勾选「离子方程式」后走另一条推导路径：允许写离子，配平要同时满足原子守恒与电荷守恒 */
+  ionic?: boolean;
+  /** 介质：同一个氧化剂在不同酸碱环境下的还原产物不同 */
+  env?: ReactionEnv;
+}
+
+export function deriveDramaFromInputs(
+  rawA: string,
+  rawB: string,
+  opts?: DeriveOptions
+): MaybeDrama {
+  if (opts?.ionic) return deriveIonicPath(rawA, rawB, opts.env ?? 'neutral');
   const trimA = rawA.trim();
   const trimB = rawB.trim();
   if (!trimA) return { drama: null, error: '请先填写反应物 A（如 Zn）或一个单反应物（如 H2O2）。' };
@@ -534,6 +554,50 @@ export function deriveDramaFromInputs(rawA: string, rawB: string): MaybeDrama {
   }
   // 3) 一般推导（燃烧/置换/中和等）
   return derivePatterns(parts);
+}
+
+/**
+ * 离子方程式路径。
+ * ⚠️ 这里的分词规则和分子式那条路不一样：不能按 `+` 切词 ——
+ *    那样 `Fe3+` 会被切成 `["Fe3"]`、`NH4+` 切成 `["NH4"]`。
+ *    离子模式改用空格 / 逗号 / 顿号 / 分号，或者两侧都带空格的 ` + `（MnO4- + Fe2+）。
+ */
+function deriveIonicPath(rawA: string, rawB: string, env: ReactionEnv): MaybeDrama {
+  const text = [rawA, rawB].filter((s) => s.trim()).join(' , ');
+  const rawParts = text
+    .split(/[,，、;；]|\s+\+\s+|\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  // 「SO4 2-」这种带空格的电荷写法会被空格切成 SO4 / 2- 两段；
+  // 遇到单独成段的纯电荷（2- / 3+ / - / +）就并回前一段，合成 SO42-
+  const parts: string[] = [];
+  for (const p of rawParts) {
+    if (/^\d*[+-]$/.test(p) && parts.length) parts[parts.length - 1] += p;
+    else parts.push(p);
+  }
+  if (!parts.length) return { drama: null, error: '请先填写反应物离子，如 Ag+ 和 Cl-。' };
+  if (parts.length > 3) return { drama: null, error: '暂支持最多 3 个反应物种，请简化输入。' };
+
+  const inputs: IonInput[] = [];
+  for (const p of parts) {
+    const ion = parseIonPart(p);
+    if (!ion) {
+      return {
+        drama: null,
+        error: `无法识别「${p}」。离子可以写成 Ag+、Cl-、MnO4-、Fe3+、SO4 2- 这些形式，多个离子之间用空格或逗号隔开。`,
+      };
+    }
+    inputs.push(ion);
+  }
+
+  const plan = deriveIonic(inputs, env);
+  if (!plan) return { drama: null, error: ionicError(inputs, env) };
+  const id = `ion_${inputs.map((i) => i.key.replace('|', '_')).join('_')}_${env}`;
+  return {
+    drama: planToDrama(plan, id, env),
+    note: '已按离子方程式配平 —— 两侧原子数与净电荷同时守恒。',
+  };
 }
 
 function buildStepsForKnown(rx: ReactionData, p: classifyInfo | null, atoms: CountMap): DramaStep[] {

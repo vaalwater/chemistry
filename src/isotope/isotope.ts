@@ -4,10 +4,10 @@
 import { content } from '../data';
 import type { ElementData } from '../types';
 
-/** 课堂范围：只搭前 20 号元素（H ~ Ca） */
-export const MAX_P = 20;
-export const MAX_N = 30;
-export const MAX_E = 20;
+/** 可搭建范围：前 86 号元素（H ~ Rn）。再往后常见接触不到，且电子排布例外多，容易误导 */
+export const MAX_P = 86;
+export const MAX_N = 150;
+export const MAX_E = 92;
 
 const SUP = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
 const SUB = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
@@ -91,11 +91,44 @@ export const ISOTOPE_GROUPS: {
   { z: 92, symbol: 'U', name: '铀', masses: [235, 238], note: '²³⁵U 可做核燃料，与 ²³⁸U 的分离是难点' },
 ];
 
-const SHELL_CAP = [2, 8, 18, 18, 18];
+/**
+ * 电子层容量（K/L/M/N/O/P），**只在元素库查不到时兜底**。
+ * 21 号以后存在能级交错（先填 4s 再回填 3d），按容量推算会算错：
+ * 例如 Fe 真实是 [2,8,14,2]，按容量会算成 [2,8,16]。所以真实排布一律取元素库的 shells。
+ */
+const SHELL_CAP = [2, 8, 18, 32, 18, 8];
 
-/** 按电子数排电子层（K/L/M… 依次填满），如 11 → [2,8,1] */
-export function electronShells(e: number): number[] {
-  let left = Math.max(0, Math.round(e));
+/**
+ * 按质子数 z 与电子数 e 排电子层（K/L/M…）。
+ * - 中性原子（e === z）：直接用元素库里的真实排布
+ * - 阳离子（e < z）：从真实排布最外层往回剥（先失最外层，与“先失 ns 再失 (n-1)d”一致）
+ * - 阴离子（e > z）：往最外层补，补到 8 个为止（如 O²⁻：[2,6] → [2,8]）
+ */
+export function electronShells(z: number, e: number): number[] {
+  const total = Math.max(0, Math.round(e));
+  if (total === 0) return [];
+  const base = z > 0 ? elementByZ(z)?.shells : undefined;
+  if (base && base.length) {
+    if (total === z) return [...base];
+    if (total < z) {
+      const out = [...base];
+      let lose = z - total;
+      for (let i = out.length - 1; i >= 0 && lose > 0; i--) {
+        const d = Math.min(out[i], lose);
+        out[i] -= d;
+        lose -= d;
+      }
+      while (out.length > 1 && out[out.length - 1] === 0) out.pop();
+      return out;
+    }
+    const out = [...base];
+    const last = out.length - 1;
+    const room = Math.max(0, 8 - out[last]);
+    out[last] += Math.min(room, total - z);
+    return out;
+  }
+  // 兜底：按层容量依次填满
+  let left = total;
   const out: number[] = [];
   for (let i = 0; left > 0 && i < SHELL_CAP.length; i++) {
     const c = Math.min(SHELL_CAP[i], left);
@@ -149,7 +182,7 @@ export function describeAtom(s: AtomState): DescribeResult {
     charge,
     ionText,
     stateLabel: charge === 0 ? '电中性原子' : charge > 0 ? '阳离子' : '阴离子',
-    shells: electronShells(s.e),
+    shells: electronShells(s.p, s.e),
     standardN,
     isCommon: !!el && s.n === standardN,
     meta: el ? isotopeMeta(el.symbol, mass) : undefined,

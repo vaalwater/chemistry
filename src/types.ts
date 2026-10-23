@@ -54,6 +54,12 @@ export interface MoleculeData {
   };
   /** 每个原子在该化合物中的离子电荷（与 atoms 下标对齐；缺省按 0 处理） */
   charges?: number[];
+  /**
+   * **整个分子的净电荷**（0 或缺省 = 中性分子）。
+   * ⚠️ 别指望从 formula 里那个上标（OH⁻、Fe³⁺）去反推 —— 上标在标题里几乎看不出来，
+   *    分子浏览页要靠这个字段把价态明写出来（见 SceneScreen 的价态标签）。
+   */
+  charge?: number;
   /** 水溶液酸碱性标注 */
   acidity?: AcidInfo;
   /** 原子下标集：该分子与反应等引用相关（无特殊含义时可缺省） */
@@ -89,7 +95,12 @@ export interface DramaStep {
 export interface ReactionDramaSpecies {
   mol: MoleculeData;
   count: number;
+  /** 该物种的净电荷（离子方程式用）：MnO₄⁻ 为 -1、Fe³⁺ 为 +3。中性物种为 0 或省略 */
+  charge?: number;
 }
+
+/** 反应发生时所处介质 —— 同一个氧化剂在不同介质下还原产物不同（如 KMnO₄：酸→Mn²⁺、中→MnO₂、碱→MnO₄²⁻） */
+export type ReactionEnv = 'acid' | 'neutral' | 'base';
 
 /** 电子转移：元素 a 的原子向元素 b 的原子转移 n 个电子（拆分/组合阶段的橙黄小球示意） */
 export interface ElectronTransfer {
@@ -114,6 +125,10 @@ export interface ReactionDrama {
   ions?: Record<string, number>;
   /** 电子转移事件列表 */
   transfers?: ElectronTransfer[];
+  /** 是否按离子方程式书写（净电荷守恒，左右两侧电荷总数相等） */
+  ionic?: boolean;
+  /** 推导时所用的介质（酸 / 中 / 碱） */
+  env?: ReactionEnv;
 }
 
 export interface ReactionData {

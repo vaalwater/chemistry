@@ -195,6 +195,30 @@
     }
   })();
 
+  /* ---------------- 方向键平移（与化学引擎同一套语义：以屏幕方向为准） ----------------
+   * 相机固定在 target + VIEW_DIR*dist 上、始终看向 target，
+   * 所以“把观察中心往屏幕右 / 上挪”就等于把画面往那个方向平移。 */
+  var WORLD_UP = V(0, 1, 0);
+  function panCamera(dir) {
+    var dx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+    var dy = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
+    if (!dx && !dy) return;
+    // 一步走多远跟着机位走：拉近时步子小、拉远时步子大，手感才一致
+    var step = clamp(camState.dist * 0.055, 0.2, 2);
+    var fwd = VIEW_DIR.clone().negate();                                  // 视线方向
+    var right = new THREE.Vector3().crossVectors(fwd, WORLD_UP);
+    if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+    right.normalize();
+    var up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+    camState.target.addScaledVector(right, dx * step).addScaledVector(up, dy * step);
+    // 内容已经摆在原点，观察中心离得太远形状就跑出画布了 —— 限制在机位的一半距离内
+    var lim = camState.dist * 0.45;
+    if (camState.target.length() > lim) camState.target.setLength(lim);
+    applyCam();
+    drawProjection();
+  }
+  A.panCamera = panCamera;
+
   /* ---------------- 绘图小工具（同时给场景脚本用） ---------------- */
   function mat(color, opacity, opts) {
     opts = opts || {};
@@ -682,6 +706,8 @@
   function clearContent() {
     clearTweens();
     while (content.children.length) content.remove(content.children[0]);
+    // 上一轮为了居中平移过 content，这里要归位，否则偏移量会一轮轮累积
+    content.position.set(0, 0, 0);
     geoState = null;
     if (A.sceneApi && A.sceneApi.current) A.sceneApi.current = null;
   }
@@ -832,14 +858,44 @@
   }
   A.animateUnfold = animateUnfold;
 
-  function fitShape() {
+  /**
+   * 把当前内容平移到模型坐标原点，返回取景用的半径。
+   * 学生拖动旋转的是“模型本身”，旋转轴在原点；内容没居中的话，一转就会绕着远处
+   * 某个点甩出去，看着就像“几何体跑到画布边上去了”。先把内容摆到原点，
+   * 旋转 / 缩放就都绕形状自己的中心，形状也就一直待在画布中央。
+   *
+   * 量两次：
+   *  ① 旋转归零量本地包围盒 —— 得到偏移量，平移之后内容中心正好落在原点；
+   *  ② 恢复旋转再量一次世界包围盒 —— 取景半径沿用“转过之后”的口径，
+   *     否则贴紧的包围盒会让所有场景突然放大一圈。
+   */
+  function centerContent() {
+    var keep = model.quaternion.clone();
+    model.quaternion.identity();
+    model.updateMatrixWorld(true);
     var box = new THREE.Box3().setFromObject(content);
+    if (box.isEmpty()) {
+      model.quaternion.copy(keep);
+      return null;
+    }
     var c = box.getCenter(new THREE.Vector3());
-    var size = box.getSize(new THREE.Vector3());
-    var r = Math.max(size.x, size.y, size.z) * 0.5 || 1;
-    camState.target.set(0, c.y, 0);
+    content.position.x -= c.x;
+    content.position.y -= c.y;
+    content.position.z -= c.z;
+    model.quaternion.copy(keep);
+    model.updateMatrixWorld(true);
+    var size = new THREE.Box3().setFromObject(content).getSize(new THREE.Vector3());
+    return Math.max(size.x, size.y, size.z) * 0.5 || 1;
+  }
+  A.centerContent = centerContent;
+
+  function fitShape() {
+    var r = centerContent();
+    if (r === null) return;
+    camState.target.set(0, 0, 0);
     camState.dist = clamp(r * 3.1, 4.5, 18);
     applyCam();
+    drawProjection();
   }
   A.fitShape = fitShape;
 
@@ -1127,7 +1183,13 @@
     } else if (act === 'view') {
       if (m.yaw !== undefined) rot.yaw = m.yaw;
       if (m.pitch !== undefined) rot.pitch = m.pitch;
-      if (m.resetView) { camState.target.set(0, camState.target.y, 0); fitShape(); }
+      if (m.pan) panCamera(m.pan);
+      if (m.resetView) {
+        // 复位：观察中心回到形状中心（内容已在原点），并把内容重新摆正取景
+        camState.target.set(0, 0, 0);
+        rot.yaw = -0.62; rot.pitch = 0.34;
+        fitShape();
+      }
       applyCam();
     } else if (act === 'scene') {
       runScene(m.id, m.step || 1, !!m.counter, m);
@@ -1172,14 +1234,16 @@
   A.runScene = runScene;
 
   function fitScene() {
-    var box = new THREE.Box3().setFromObject(content);
-    var c = box.getCenter(new THREE.Vector3());
-    var size = box.getSize(new THREE.Vector3());
-    var r = Math.max(size.x, size.y, size.z) * 0.5 || 1;
-    camState.target.set(c.x, c.y, c.z);
-    camState.dist = clamp(r * 2.9, 4.5, 20);
+    // 先摆到固定机位再量尺寸：取景倍数才稳定（以前是拿上一个场景残留的角度去量）
     rot.yaw = -0.62; rot.pitch = 0.34;
     applyCam();
+    var r = centerContent();
+    if (r === null) return;
+    // 内容已在原点：观察中心也回到原点，旋转轴与缩放中心就都落在形状身上
+    camState.target.set(0, 0, 0);
+    camState.dist = clamp(r * 2.9, 4.5, 20);
+    applyCam();
+    drawProjection();
   }
   A.fitScene = fitScene;
 

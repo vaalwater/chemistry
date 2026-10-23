@@ -7,8 +7,11 @@ import ProjectionLabScreen from './ProjectionLabScreen';
 import TheoremLabScreen from './TheoremLabScreen';
 import AngleFinderScreen from './AngleFinderScreen';
 import VolumeTheaterScreen from './VolumeTheaterScreen';
+import type { AngleType, ShapeId, TheoremId } from '../../geometry/geoContent';
 
 type ViewKey = 'home' | 'proj' | 'theorem' | 'angle' | 'volume';
+/** 二级实验室 key（home 之外的取值），供外部（知识点汇总）直接定位到某个实验室 */
+export type GeoViewKey = Exclude<ViewKey, 'home'>;
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -55,14 +58,39 @@ const CARDS: {
 ];
 
 /** 数学频道 · 立体几何子频道 */
-export default function SolidGeoHomeScreen({ onBack }: { onBack: () => void }) {
-  const [view, setView] = useState<ViewKey>('home');
+export default function SolidGeoHomeScreen({
+  onBack,
+  initialView,
+  initialItem,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总等处进入时，直接打开对应的二级实验室 */
+  initialView?: GeoViewKey;
+  /** 二级实验室里要预选的条目（定理 id / 几何体 id / 角的类型 / 剧场 id） */
+  initialItem?: string;
+}) {
+  const [view, setView] = useState<ViewKey>(initialView ?? 'home');
   const insets = useSafeAreaInsets();
+  /**
+   * 被外部直接定位到某个实验室时（比如从知识点汇总点进来），
+   * 实验室里的「返回」应当直接离开本模块（回到汇总页），而不是先退回模块首页。
+   */
+  const backFromLab = initialView ? onBack : () => setView('home');
 
-  if (view === 'proj') return <ProjectionLabScreen onBack={() => setView('home')} />;
-  if (view === 'theorem') return <TheoremLabScreen onBack={() => setView('home')} />;
-  if (view === 'angle') return <AngleFinderScreen onBack={() => setView('home')} />;
-  if (view === 'volume') return <VolumeTheaterScreen onBack={() => setView('home')} />;
+  if (view === 'proj') {
+    return (
+      <ProjectionLabScreen onBack={backFromLab} initialShape={initialItem as ShapeId | undefined} />
+    );
+  }
+  if (view === 'theorem') {
+    return <TheoremLabScreen onBack={backFromLab} initialId={initialItem as TheoremId | undefined} />;
+  }
+  if (view === 'angle') {
+    return <AngleFinderScreen onBack={backFromLab} initialKind={initialItem as AngleType | undefined} />;
+  }
+  if (view === 'volume') {
+    return <VolumeTheaterScreen onBack={backFromLab} initialId={initialItem} />;
+  }
 
   return (
     <View style={styles.root}>

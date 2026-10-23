@@ -3,6 +3,7 @@ import { Animated, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Chem3DView, { type Chem3DHandle } from '../components/Chem3DView';
+import CanvasPanPad from '../components/CanvasPanPad';
 import { colors, radii, shadow } from '../theme';
 import {
   acidityTone,
@@ -17,6 +18,7 @@ import {
   reactionById,
   SHELL_LABELS,
   shellsForIon,
+  valenceInfo,
 } from '../data';
 import { LATTICE_LINKS } from '../radius/radiusRule';
 import type { ElementData, EngineEvent, MoleculeData, SceneReq } from '../types';
@@ -186,8 +188,14 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
       } else if (ev.ev === 'ready') {
         // 引擎就绪前的 view / speed 命令会丢失（宿主尚未注入成功），这里标记后由 effect 补发
         setEngineReady(true);
-        setNote('场景就绪，试试拖动旋转或轻点原子');
-        setTimeout(() => setNote(null), 2400);
+        // 反应场景里画布上的物质名称是可以点的（会打开该物质的 3D 结构），
+        // 但这个入口很隐蔽，就绪提示必须点明，否则大多数人永远不会发现
+        setNote(
+          curRef.current.scene?.kind === 'reaction'
+            ? '场景就绪 · 轻点画布上的物质名称可查看它的 3D 结构'
+            : '场景就绪，试试拖动旋转或轻点原子'
+        );
+        setTimeout(() => setNote(null), 2600);
       }
     },
     [push]
@@ -281,11 +289,11 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
     send({ cmd: 'reaction', action: 'speed', value: rxnSpeed });
   }, [rxnSpeed, send, engineReady]);
 
-  // 反应 / 原子场景：把画布上下被遮挡的区域（顶部导航 / 底部信息卡，单位 px）告诉引擎，
-  // 引擎据此把内容放进两条之间的可视带中央（手机竖屏上否则会被说明卡挡住、原子看着偏下）。
+  // 分子 / 原子 / 反应场景：把画布上下被遮挡的区域（顶部导航 / 底部信息卡，单位 px）告诉引擎，
+  // 引擎据此把内容放进两条之间的可视带中央（手机竖屏上否则会被说明卡挡住、分子和原子看着偏下）。
+  // 分子以前按整屏取景，卡片一展开就偏下、收起后才居中；现在三种场景都按可视带走。
   // cardH 首帧还是 0、且引擎未就绪前下发的命令会丢失，所以再补一次
   useEffect(() => {
-    if (scene.kind !== 'reaction' && scene.kind !== 'atom') return;
     send({ cmd: 'view', action: 'band', top: insets.top + 64, bottom: cardH + 8 });
   }, [scene.kind, cardH, insets.top, send, engineReady]);
 
@@ -342,8 +350,10 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
           </View>
         </View>
 
-        {/* 画布上的视角平移方向盘：上下左右四向浮层，覆盖在 3D 画布之上（分子浏览与反应场景共用） */}
-        {(scene.kind === 'molecule' && mol) || (scene.kind === 'reaction' && reaction) ? (
+        {/* 画布上的视角平移方向盘：上下左右四向浮层，覆盖在 3D 画布之上（分子 / 原子 / 反应共用） */}
+        {(scene.kind === 'molecule' && mol) ||
+        (scene.kind === 'reaction' && reaction) ||
+        (scene.kind === 'atom' && element) ? (
           <CanvasPanPad
             top={insets.top + 64}
             bottom={cardH + 8}
@@ -468,6 +478,35 @@ function MoleculePanel({
           </View>
         </View>
       </View>
+
+      {/* 离子的电荷要单独标出来：化学式里那个上标（OH⁻、Fe³⁺）小到没人看得见，
+          而离子方程式的配平恰恰全靠它 —— 不写明价态，这个页就等于没讲清楚这是谁 */}
+      {mol.charge ? (
+        <>
+          <View style={[styles.chargeBadge, mol.charge > 0 && styles.chargeBadgeCat]}>
+            <Text style={[styles.chargeBadgeSym, mol.charge > 0 && styles.chargeBadgeSymCat]}>
+              {mol.charge > 0 ? '＋' : '－'}
+              {Math.abs(mol.charge)}
+            </Text>
+            <Text style={styles.chargeBadgeText}>
+              {mol.charge > 0 ? '价阳离子' : '价阴离子'}
+              {'  ·  带 '}
+              {Math.abs(mol.charge)}
+              {' 个单位'}
+              {mol.charge > 0 ? '正' : '负'}
+              电荷
+            </Text>
+          </View>
+          <Text style={styles.chargeLegend}>
+            3D 模型外围那 {Math.min(6, Math.abs(mol.charge))} 个标记就是{mol.charge > 0 ? '失去' : '得到'}的电子 ——{' '}
+            {mol.charge > 0 ? '「点勾出的空心球」= 空出来的位置' : '「实心小球」= 多出来的电子'}
+          </Text>
+        </>
+      ) : mol.charges && mol.charges.some((c) => c) ? (
+        <View style={styles.chargeBadge}>
+          <Text style={styles.chargeBadgeText}>内部由离子构成 · 整体呈电中性</Text>
+        </View>
+      ) : null}
 
       {acid && tone ? (
         <View style={[styles.acidStrip, { backgroundColor: tone.bg }]}>
@@ -641,76 +680,6 @@ function SpeedSlider({ value, onChange }: { value: number; onChange: (v: number)
   );
 }
 
-/* ---------- 画布上的视角平移方向盘（上/下/左/右四向，浮在 3D 画布之上） ---------- */
-type PanDir = 'left' | 'right' | 'up' | 'down';
-
-const PAN_ICONS: Record<PanDir, 'arrow-back' | 'arrow-forward' | 'arrow-up' | 'arrow-down'> = {
-  up: 'arrow-up',
-  down: 'arrow-down',
-  left: 'arrow-back',
-  right: 'arrow-forward',
-};
-
-const PAN_LABELS: Record<PanDir, string> = {
-  up: '视角上移',
-  down: '视角下移',
-  left: '视角左移',
-  right: '视角右移',
-};
-
-/**
- * 平移按钮：弱化淡灰浮层。外层 box-none 只让按钮自身命中，
- * 按钮内以 Responder 抢占触摸，按下与滑动都不会透传给下层画布（不触发拖拽/缩放/点击原子）。
- */
-function PanButton({ dir, onPan }: { dir: PanDir; onPan: (d: PanDir) => void }) {
-  const [pressed, setPressed] = useState(false);
-  return (
-    <View
-      style={[styles.panBtn, pressed && styles.panBtnPressed]}
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderTerminationRequest={() => false}
-      onResponderGrant={() => setPressed(true)}
-      onResponderRelease={() => {
-        setPressed(false);
-        onPan(dir);
-      }}
-      onResponderTerminate={() => setPressed(false)}
-      accessibilityRole="button"
-      accessibilityLabel={PAN_LABELS[dir]}
-    >
-      <Ionicons name={PAN_ICONS[dir]} size={17} color={colors.faint} />
-    </View>
-  );
-}
-
-function CanvasPanPad({
-  top,
-  bottom,
-  onPan,
-}: {
-  top: number;
-  bottom: number;
-  onPan: (dir: PanDir) => void;
-}) {
-  return (
-    <View style={[styles.panLayer, { top, bottom }]} pointerEvents="box-none">
-      <View style={styles.panEdgeTop} pointerEvents="box-none">
-        <PanButton dir="up" onPan={onPan} />
-      </View>
-      <View style={styles.panEdgeBottom} pointerEvents="box-none">
-        <PanButton dir="down" onPan={onPan} />
-      </View>
-      <View style={styles.panEdgeLeft} pointerEvents="box-none">
-        <PanButton dir="left" onPan={onPan} />
-      </View>
-      <View style={styles.panEdgeRight} pointerEvents="box-none">
-        <PanButton dir="right" onPan={onPan} />
-      </View>
-    </View>
-  );
-}
-
 /* ---------- 反应面板 ---------- */
 function ReactionPanel({
   reaction,
@@ -732,6 +701,8 @@ function ReactionPanel({
   const step = reaction.steps.length ? Math.min(state.step, reaction.steps.length - 1) : 0;
   const active = reaction.steps[step];
   const [folded, setFolded] = useState(false);
+  /** 离子方程式比分子方程式长得多，超过这个长度就降一档字号，保证两行内能显示完整 */
+  const longEq = reaction.equation.length > 44;
   if (folded) {
     return (
       <View style={[styles.card, styles.cardTight]}>
@@ -741,21 +712,19 @@ function ReactionPanel({
   }
   return (
     <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {reaction.equation}
-        </Text>
-        <View style={styles.pillRow}>
-          <View style={[styles.pill, styles.pillAccent]}>
-            <Text style={[styles.pillText, styles.pillTextAccent]}>{reaction.type}</Text>
-          </View>
+      {/* 离子方程式常常很长（MnO₄⁻ + 5Fe²⁺ + 8H⁺ → …），单行会被截断，
+          所以让方程式独占整行自动换行，过长时再降一档字号 */}
+      <Text style={[styles.eqText, longEq && styles.eqTextLong]}>{reaction.equation}</Text>
+      <View style={[styles.pillRow, styles.pillRowTop]}>
+        <View style={[styles.pill, styles.pillAccent]}>
+          <Text style={[styles.pillText, styles.pillTextAccent]}>{reaction.type}</Text>
+        </View>
           {reaction.condition ? (
             <View style={styles.pill}>
               <Text style={styles.pillText}>{reaction.condition}</Text>
             </View>
           ) : null}
         </View>
-      </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.stepRow}>
@@ -778,6 +747,11 @@ function ReactionPanel({
       ) : (
         <Text style={styles.stepDesc}>正在载入反应剧幕…</Text>
       )}
+
+      {/* 画布上的物质名称胶囊是进入该物质 3D 结构的唯一入口，这里常驻一行说明 */}
+      <Text style={[styles.tip, styles.tipTop]}>
+        拖动旋转 · 缩放观察 · 轻点画布上的物质名称 › 查看它的 3D 结构
+      </Text>
 
       <View style={styles.ctrlRow}>
         <RoundBtn icon="play-skip-back" label="上一步" onPress={onPrev} />
@@ -835,6 +809,7 @@ function AtomPanel({
   const shells = shellsForIon(element, charge);
   const shellCfg = electronShellConfigs(shells);
   const cfgText = electronConfigText(shells);
+  const val = valenceInfo(shells);
   const electrons = element.p - charge;
   const charged = charge !== 0;
   const ionName = ionChargeText(element.symbol, charge);
@@ -894,6 +869,32 @@ function AtomPanel({
           ))}
         </View>
       </ScrollView>
+      {/* 完整电子排布式：electronConfigText 早就算了，之前没接上来 */}
+      <View style={styles.cfgFullWrap}>
+        <Text style={styles.cfgFullTag}>电子排布式</Text>
+        <Text style={styles.cfgFullText}>{cfgText}</Text>
+      </View>
+
+      {/* 价电子：把它和「最外层电子」并排放，否则学生很容易把两者当成一回事 */}
+      <View style={[styles.valenceWrap, val.isTransition && styles.valenceWrapTrans]}>
+        <View style={styles.valenceHead}>
+          <Text style={styles.valenceTag}>价电子</Text>
+          <Text style={styles.valenceNum}>{val.valenceE}</Text>
+          <Text style={styles.valenceUnit}>个</Text>
+          <Text style={styles.valenceCmp}>
+            最外层（第 {SHELL_LABELS[val.outerShell - 1] || val.outerShell} 层）只有 {val.outerE} 个
+          </Text>
+        </View>
+        {val.valenceE !== val.outerE ? (
+          <Text style={styles.valenceRow}>价电子 = {val.parts.join(' + ')} = {val.valenceE} 个</Text>
+        ) : (
+          <Text style={styles.valenceRow}>
+            价电子 = {val.parts.length ? val.parts.join(' + ') : val.valenceE} · 与最外层电子数相同
+          </Text>
+        )}
+        <Text style={styles.valenceNote}>{val.note}</Text>
+      </View>
+
       {/* 八隅体规则提示：成键态已由下方“共用电子对”卡片说明，此处不重复 */}
       {!(atomCtx && atomCtx.bondE > 0) ? (
         <View style={styles.octetWrap}>
@@ -1002,7 +1003,8 @@ function FoldToggle({
         accessibilityRole="button"
         accessibilityLabel="展开介绍"
       >
-        <Text style={styles.foldBarTitle} numberOfLines={1}>
+        {/* 折叠条上方程式也允许两行，否则长离子方程式被截得看不出是哪个反应 */}
+        <Text style={styles.foldBarTitle} numberOfLines={2}>
           {title}
         </Text>
         <View style={styles.foldBarBtn}>
@@ -1171,6 +1173,15 @@ const styles = StyleSheet.create({
     color: colors.ink,
     marginRight: 8,
   },
+  // 反应方程式独占整行（分子标题共用上面的 cardTitle，这里不复用以免互相影响）
+  eqText: {
+    fontSize: 15.5,
+    fontWeight: '800',
+    color: colors.ink,
+    lineHeight: 22,
+  },
+  eqTextLong: { fontSize: 13.5, lineHeight: 20 },
+  pillRowTop: { marginTop: 8 },
   cardFormula: {
     color: colors.sub,
     fontWeight: '600',
@@ -1252,6 +1263,64 @@ const styles = StyleSheet.create({
     color: colors.faint,
     marginTop: 6,
   },
+  tipTop: { marginTop: 10, lineHeight: 16 },
+
+  // 价态徽章：阳离子偏暖（失电子、显正电），阴离子偏冷（得电子、显负电）
+  chargeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 7,
+    marginTop: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#e8f2ff',
+    borderWidth: 1,
+    borderColor: '#bcd7f7',
+  },
+  chargeBadgeCat: { backgroundColor: '#fff0e8', borderColor: '#f8cbb0' },
+  chargeBadgeSym: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#2f6bd8',
+    letterSpacing: 0.5,
+  },
+  chargeBadgeSymCat: { color: '#d9622a' },
+  chargeLegend: { fontSize: 11, color: colors.faint, lineHeight: 16, marginTop: 5 },
+
+  // 完整电子排布式（1s² 2s² 2p⁶ …）
+  cfgFullWrap: {
+    marginTop: 8,
+    backgroundColor: '#f4f7fd',
+    borderWidth: 1,
+    borderColor: '#dde6f4',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  cfgFullTag: { fontSize: 11, color: colors.sub, fontWeight: '700', marginBottom: 3 },
+  cfgFullText: { fontSize: 13, color: colors.ink, fontWeight: '700', lineHeight: 19 },
+
+  // 价电子（与最外层电子对照，过渡元素时换成暖色边框以示“d 电子也参与”）
+  valenceWrap: {
+    marginTop: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  valenceWrapTrans: { backgroundColor: '#fffaf5', borderColor: '#f3d6bd' },
+  valenceHead: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },
+  valenceTag: { fontSize: 12, fontWeight: '700', color: colors.ink, marginRight: 6 },
+  valenceNum: { fontSize: 17, fontWeight: '800', color: colors.accent },
+  valenceUnit: { fontSize: 11, color: colors.sub, marginRight: 8 },
+  valenceCmp: { fontSize: 11, color: colors.faint, flexShrink: 1 },
+  valenceRow: { fontSize: 12, fontWeight: '600', color: colors.inkSoft, marginTop: 4 },
+  valenceNote: { fontSize: 11, color: colors.sub, lineHeight: 16, marginTop: 4 },
+  chargeBadgeText: { fontSize: 11.5, fontWeight: '600', color: colors.inkSoft },
   stepRow: {
     flexDirection: 'row',
     marginTop: 10,
@@ -1330,52 +1399,6 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontWeight: '600',
     marginLeft: 4,
-  },
-  panLayer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-  },
-  panEdgeTop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  panEdgeBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  panEdgeLeft: {
-    position: 'absolute',
-    left: 8,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-  },
-  panEdgeRight: {
-    position: 'absolute',
-    right: 8,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-  },
-  panBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.45)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(22,50,79,0.08)',
-  },
-  panBtnPressed: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
   },
   speedBox: {
     marginTop: 10,

@@ -206,3 +206,132 @@ export function octetRuleText(shells: number[]): string {
     ? `最外层 ${val} e⁻，距 2 电子满壳还差 ${target - val} 个 · 常通过与相邻原子共用电子对趋稳`
     : `最外层 ${val} e⁻，按八隅体规则距 8 e⁻ 还差 ${target - val} 个 · 倾向得失或共用电子趋稳`;
 }
+
+/** 把某一层的电子数拆成 s/p/d/f 四个亚层（壳内按 s→p→d→f 贪心填充） */
+export function subshellCounts(total: number): { s: number; p: number; d: number; f: number } {
+  const out = { s: 0, p: 0, d: 0, f: 0 };
+  const keys = ['s', 'p', 'd', 'f'] as const;
+  let rest = total;
+  for (let i = 0; i < keys.length && rest > 0; i++) {
+    const c = Math.min(SS_CAP[i], rest);
+    out[keys[i]] = c;
+    rest -= c;
+  }
+  return out;
+}
+
+export interface ValenceInfo {
+  /** 最外层是第几层（主量子数） */
+  outerShell: number;
+  /** 最外层电子数 */
+  outerE: number;
+  /** 最外层的亚层写法，如 ['4s²'] */
+  outerParts: string[];
+  /** 价电子总数 */
+  valenceE: number;
+  /** 价电子由哪些亚层构成，如 ['3d⁶', '4s²'] */
+  parts: string[];
+  /** 次外层 d 亚层未满 —— 即过渡元素，d 电子也要算进价电子 */
+  isTransition: boolean;
+  /** 一句解释 */
+  note: string;
+}
+
+/** 能量由低到高的填充顺序（构造原理 / Aufbau）：4s 低于 3d、6s 低于 4f 低于 5d… */
+const AUFBAU: { n: number; l: string; cap: number }[] = [
+  { n: 1, l: 's', cap: 2 },
+  { n: 2, l: 's', cap: 2 }, { n: 2, l: 'p', cap: 6 },
+  { n: 3, l: 's', cap: 2 }, { n: 3, l: 'p', cap: 6 },
+  { n: 4, l: 's', cap: 2 }, { n: 3, l: 'd', cap: 10 }, { n: 4, l: 'p', cap: 6 },
+  { n: 5, l: 's', cap: 2 }, { n: 4, l: 'd', cap: 10 }, { n: 5, l: 'p', cap: 6 },
+  { n: 6, l: 's', cap: 2 }, { n: 4, l: 'f', cap: 14 }, { n: 5, l: 'd', cap: 10 }, { n: 6, l: 'p', cap: 6 },
+  { n: 7, l: 's', cap: 2 }, { n: 5, l: 'f', cap: 14 }, { n: 6, l: 'd', cap: 10 }, { n: 7, l: 'p', cap: 6 },
+];
+const AUFBAU_RANK: Record<string, number> = {};
+AUFBAU.forEach((o, i) => { AUFBAU_RANK[`${o.n}${o.l}`] = i; });
+
+/**
+ * 价电子 = 能参与成键、决定化合价的电子。
+ *
+ * ⚠️ 它**不等于**最外层电子数，这是高中最容易混的地方：
+ *    - 主族元素：两者相等（Na 最外层 1 个 = 价电子 1 个）；
+ *    - 过渡金属：次外层**未充满**的 d 电子也参与成键，于是
+ *      Fe 最外层只有 4s² 这 2 个，价电子却是 3d⁶ + 4s² = 8 个 —— 这正是它常见 +2、+3 价的原因；
+ *    - d 亚层已充满 10 个时不再计入（Zn 的 3d¹⁰ 很稳定，价电子就只是 4s² 这 2 个），
+ *      这也符合「过渡元素 = 原子基态具有未满 d 亚层」的定义，所以 Cu/Zn/Ag 不算过渡元素。
+ *
+ * ⚠️ 必须按**能量**顺序（Aufbau）从高往低数，不能只按主量子数分层：
+ *    Fe²⁺ 失去 4s² 之后排布变成 [Ar]3d⁶，第 3 层成了「最外层」，
+ *    但 3s²3p⁶ 是闭壳内层、并不参与成键 —— 若按层号硬算会得出「价电子 14」这种荒谬结果。
+ */
+export function valenceInfo(shells: number[]): ValenceInfo {
+  const n = shells.length;
+  const outerE = shells[n - 1] ?? 0;
+  const outer = subshellCounts(outerE);
+
+  const outerParts: string[] = [];
+  if (outer.s) outerParts.push(`${n}s${supText(outer.s)}`);
+  if (outer.p) outerParts.push(`${n}p${supText(outer.p)}`);
+
+  // 特例 Pd（[Kr]4d¹⁰）：它压根没有更外的 s 电子，最外层本身就是已充满的 d 亚层，
+  // 这时「最外层电子数」会得出 18 这种没有化学意义的数字，单独说明
+  if (n >= 4 && outer.d === 10 && outer.p === 6) {
+    return {
+      outerShell: n,
+      outerE,
+      outerParts,
+      valenceE: 10,
+      parts: [`${n}d¹⁰`],
+      isTransition: false,
+      note: `最外层（第 ${n} 层）本身就是已充满的 d 亚层 ${n}d¹⁰，外面没有 s 电子 —— Pd 是唯一这样的元素，它的价电子就是这 10 个 d 电子。`,
+    };
+  }
+
+  // 展开所有被占据的亚层，按能量从高到低遍历
+  const occ: { n: number; l: string; e: number; cap: number }[] = [];
+  shells.forEach((total, k) => {
+    const c = subshellCounts(total);
+    (['s', 'p', 'd', 'f'] as const).forEach((l, li) => {
+      if (c[l] > 0) occ.push({ n: k + 1, l, e: c[l], cap: SS_CAP[li] });
+    });
+  });
+  occ.sort((a, b) => (AUFBAU_RANK[`${b.n}${b.l}`] ?? 0) - (AUFBAU_RANK[`${a.n}${a.l}`] ?? 0));
+
+  let sum = 0;
+  const picked: { n: number; l: string; e: number }[] = [];
+  let countedDF = false;
+  for (let idx = 0; idx < occ.length; idx++) {
+    const o = occ[idx];
+    const full = o.e >= o.cap;
+    if (o.l === 'd' || o.l === 'f') {
+      if (full) continue;                       // 已充满的 d/f 是闭壳内层，跳过继续往下找
+      sum += o.e; countedDF = true; picked.push(o);
+      continue;                                 // 未满的 d/f 参与成键，继续带上更外侧的 s
+    }
+    if (o.l === 's') { sum += o.e; picked.push(o); break; }   // s 无论满否都计入，到此为止
+    // p 亚层：只有当它是**能量最高**的亚层时，才是稀有气体那样的 8 电子闭壳；
+    // 若上方还盖着 d/f 电子（Cu⁺ 的 3d¹⁰ 压在 3p⁶ 上），这层 p 是内层，不能计入
+    if (full && (countedDF || idx > 0)) break;
+    sum += o.e; picked.push(o);
+    const sameS = occ.find((x) => x.n === o.n && x.l === 's'); // 主族的 ns² 同样参与成键
+    if (sameS) { sum += sameS.e; picked.push(sameS); }
+    break;
+  }
+
+  // 显示时按常规书写顺序（主量子数从小到大、同层 s→p→d→f），而不是能量顺序
+  picked.sort((a, b) => a.n - b.n || ['s', 'p', 'd', 'f'].indexOf(a.l) - ['s', 'p', 'd', 'f'].indexOf(b.l));
+  const parts = picked.map((o) => `${o.n}${o.l}${supText(o.e)}`);
+  const valenceE = sum;
+
+  let note: string;
+  if (!countedDF && valenceE === 0) {
+    note = `已填满的最外亚层之上再无电子，是稳定的闭壳结构（如 Na⁺、Cl⁻、Cu⁺ 这类离子），一般不再得失电子。`;
+  } else if (countedDF) {
+    note = `${parts.join('、')} 上的电子都能参与成键，所以价电子是 ${valenceE} 个（不只是最外层的 ${outerE} 个）；它们可以部分失去，因此往往不止一种化合价。`;
+  } else if (outerE >= (n <= 1 ? 2 : 8)) {
+    note = `最外层 ${outerE} 个电子已满壳，一般不再参与成键，所以化合价通常为 0。`;
+  } else {
+    note = `价电子就是最外层的 ${valenceE} 个电子（${parts.join(' + ')}），得失或共用这些电子即达到稳定结构。`;
+  }
+  return { outerShell: n, outerE, outerParts, valenceE, parts, isTransition: countedDF, note };
+}

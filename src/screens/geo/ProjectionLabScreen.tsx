@@ -1,21 +1,36 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
-import Geo3DView from '../../components/Geo3DView';
+import Geo3DView, { type Geo3DHandle } from '../../components/Geo3DView';
+import CanvasPanPad, { type PanDir } from '../../components/CanvasPanPad';
 import { PROJ_MODES, SHAPES, type ShapeId } from '../../geometry/geoContent';
 import type { EngineEvent } from '../../types';
 
 /** 痛点一：3D 实体 ↔ 2D 直观图双向联动 + 表面展开 */
-export default function ProjectionLabScreen({ onBack }: { onBack: () => void }) {
+export default function ProjectionLabScreen({
+  onBack,
+  initialShape,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总进入时预选的几何体 */
+  initialShape?: ShapeId;
+}) {
   const insets = useSafeAreaInsets();
-  const [shape, setShape] = useState<ShapeId>('cube');
+  const startShape = initialShape ?? 'cube';
+  const [shape, setShape] = useState<ShapeId>(startShape);
   const [proj, setProj] = useState<'oblique' | 'isometric'>('oblique');
   const [opened, setOpened] = useState(false);
   const [picked, setPicked] = useState<{ id: string; from: string } | null>(null);
+  const geoRef = useRef<Geo3DHandle | null>(null);
+  /** 本页是「3D 上 + 2D 直观图下」的上下分屏，方向键只覆盖上面那块 3D 区域 */
+  const handlePan = useCallback(
+    (dir: PanDir) => geoRef.current?.send({ cmd: 'geo', action: 'view', pan: dir }),
+    []
+  );
   const [cmd, setCmd] = useState<object>({
-    cmd: 'geo', action: 'shape', shape: 'cube', layout: 'split', proj: 'oblique',
+    cmd: 'geo', action: 'shape', shape: startShape, layout: 'split', proj: 'oblique',
   });
 
   const onEvent = useCallback((ev: EngineEvent) => {
@@ -53,7 +68,8 @@ export default function ProjectionLabScreen({ onBack }: { onBack: () => void }) 
       </View>
 
       <View style={styles.viewWrap}>
-        <Geo3DView command={cmd} onEvent={onEvent} />
+        <Geo3DView ref={geoRef} command={cmd} onEvent={onEvent} />
+        <CanvasPanPad top={8} bottomPct={44} onPan={handlePan} />
       </View>
 
       <ScrollView style={styles.panel} contentContainerStyle={styles.panelInner} showsVerticalScrollIndicator={false}>

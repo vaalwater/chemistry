@@ -7,8 +7,11 @@ import FieldLabScreen from './FieldLabScreen';
 import RuleTrainerScreen from './RuleTrainerScreen';
 import InductionLabScreen from './InductionLabScreen';
 import AcLabScreen from './AcLabScreen';
+import type { AcKey, FieldId, RuleKey } from '../../physics/emContent';
 
 type ViewKey = 'home' | 'field' | 'rule' | 'induction' | 'ac';
+/** 二级实验室 key（home 之外的取值），供外部（知识点汇总）直接定位到某个实验室 */
+export type EmViewKey = Exclude<ViewKey, 'home'>;
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -55,14 +58,32 @@ const CARDS: {
 ];
 
 /** 物理频道 · 电磁学子频道 */
-export default function EmHomeScreen({ onBack }: { onBack: () => void }) {
-  const [view, setView] = useState<ViewKey>('home');
+export default function EmHomeScreen({
+  onBack,
+  initialView,
+  initialItem,
+}: {
+  onBack: () => void;
+  /** 从知识点汇总等处进入时，直接打开对应的二级实验室 */
+  initialView?: EmViewKey;
+  /** 二级实验室里要预选的条目（场 id / 定则 key / 交流电模块 key） */
+  initialItem?: string;
+}) {
+  const [view, setView] = useState<ViewKey>(initialView ?? 'home');
   const insets = useSafeAreaInsets();
+  /** 被外部直接定位到某个实验室时（比如从知识点汇总点进来），返回就直接离开本模块 */
+  const backFromLab = initialView ? onBack : () => setView('home');
 
-  if (view === 'field') return <FieldLabScreen onBack={() => setView('home')} />;
-  if (view === 'rule') return <RuleTrainerScreen onBack={() => setView('home')} />;
-  if (view === 'induction') return <InductionLabScreen onBack={() => setView('home')} />;
-  if (view === 'ac') return <AcLabScreen onBack={() => setView('home')} />;
+  if (view === 'field') {
+    return <FieldLabScreen onBack={backFromLab} initialField={initialItem as FieldId | undefined} />;
+  }
+  if (view === 'rule') {
+    return <RuleTrainerScreen onBack={backFromLab} initialRule={initialItem as RuleKey | undefined} />;
+  }
+  if (view === 'induction') return <InductionLabScreen onBack={backFromLab} />;
+  if (view === 'ac') {
+    return <AcLabScreen onBack={backFromLab} initialKey={initialItem as AcKey | undefined} />;
+  }
 
   return (
     <View style={styles.root}>
