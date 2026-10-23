@@ -53,3 +53,8 @@ tmp_*.cjs
 # browser automation leftovers
 .playwright-cli/
 setlab.png
+s1.yaml
+
+# 一次性素材（隐私页文案草稿与配图，未纳入仓库）
+append.png
+appendix.md
