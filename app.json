@@ -21,9 +21,11 @@
           "zh-Hans",
           "en"
         ],
-        "CFBundleDevelopmentRegion": "zh-Hans"
+        "CFBundleDevelopmentRegion": "zh-Hans",
+        "NSPhotoLibraryUsageDescription": "用于访问相册，以便选择或保存与学习相关的图片素材",
+        "NSPhotoLibraryAddUsageDescription": "用于将学习相关的图片保存到你的相册"
       },
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
