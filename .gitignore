@@ -39,7 +39,10 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# generated native folders
+# generated native folders（整体由 prebuild 生成，不入库）
+# 例外：ios/3D/Info.plist 里有手写补丁（UIApplicationSceneManifest、语音权限文案），
+# 已用 `git add -f` 单独跟踪 —— 不要把它从版本库里删掉，否则 prebuild 冲掉后无从察觉。
+# 它被 /ios 规则排除，所以新增改动要用 `git add -f ios/3D/Info.plist` 才会进暂存区。
 /ios
 /android
 
