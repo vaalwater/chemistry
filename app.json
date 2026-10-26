@@ -17,7 +17,10 @@
       "bundleIdentifier": "com.rongweiwei.chem3dclassroom",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleLocalizations": ["zh-Hans", "en"],
+        "CFBundleLocalizations": [
+          "zh-Hans",
+          "en"
+        ],
         "CFBundleDevelopmentRegion": "zh-Hans"
       }
     },
@@ -34,6 +37,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-status-bar"]
+    "plugins": [
+      "expo-status-bar",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "用于语音输入：把你说的话转成文字",
+          "speechRecognitionPermission": "用于把你说的话转成文字，填入问答输入框"
+        }
+      ]
+    ]
   }
 }

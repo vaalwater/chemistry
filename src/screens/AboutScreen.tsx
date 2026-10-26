@@ -37,19 +37,34 @@ const sections: { title: string; body: string }[] = [
 export default function AboutScreen({
   onBack,
   onOpenPrivacy,
+  onOpenAssistantSettings,
 }: {
   onBack: () => void;
   onOpenPrivacy: () => void;
+  /** 右上角齿轮 → 问答助手设置（悬浮球的开关、选站点、清理网页都在那里） */
+  onOpenAssistantSettings: () => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={styles.container}>
       {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
-          <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
-          <Text style={styles.backText}>返回</Text>
-        </Pressable>
+        <View style={styles.headerRow}>
+          <Pressable style={styles.backBtn} onPress={onBack} accessibilityRole="button">
+            <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
+            <Text style={styles.backText}>返回</Text>
+          </Pressable>
+          {/* 问答助手设置的唯一入口 */}
+          <Pressable
+            style={styles.gearBtn}
+            onPress={onOpenAssistantSettings}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="问答助手设置"
+          >
+            <Ionicons name="settings-outline" size={19} color={colors.inkSoft} />
+          </Pressable>
+        </View>
         <Text style={styles.title}>关于</Text>
         <Text style={styles.subtitle}>理科3D视界 · 数学 / 物理 / 化学</Text>
       </View>
@@ -105,6 +120,15 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
   cardBody: { fontSize: 13, lineHeight: 21, color: colors.sub, marginTop: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  gearBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f4f9',
+  },
   linkCard: {
     flexDirection: 'row',
     alignItems: 'center',

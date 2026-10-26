@@ -4,12 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
 
 /** 生效日期：改动政策内容时同步改这一行 */
-const EFFECTIVE = '2026 年 10 月 20 日';
+const EFFECTIVE = '2026 年 10 月 24 日';
 
 const sections: { title: string; body: string }[] = [
   {
     title: '一句话版本',
-    body: '理科3D视界不收集、不上传、不共享你的任何个人信息。你在这个 App 里做的每一件事，都只发生在这台设备上。',
+    body: '理科3D视界不收集、不上传、不共享你的任何个人信息。你在这个 App 里做的每一件事，都只发生在这台设备上 —— 唯一的例外是「问答助手」，它会打开你自己在设置里选的第三方网站，那部分由对方处理（见下文）。',
   },
   {
     title: '我们不收集什么',
@@ -17,11 +17,11 @@ const sections: { title: string; body: string }[] = [
   },
   {
     title: '存在本机的数据',
-    body: '唯一会写入存储的，是数学频道「画图」里你手动保存的函数与关卡进度。它写在这台设备的本地存储中（浏览器环境下为 localStorage，原生环境下仅保存在内存里），不会同步、不会上传。清除浏览器数据或卸载应用，这些数据即被删除。',
+    body: '会写入本机存储的只有两类：一是数学频道「画图」里你手动保存的函数与关卡进度；二是问答助手的设置（是否显示悬浮球、选择哪个网站）。它们都写在这台设备的本地存储中，不会同步、不会上传。清除应用数据或卸载应用，这些数据即被删除。',
   },
   {
     title: '联网与离线',
-    body: '所有教学内容（分子与原子结构、反应动画、3D 场景引擎）均打包在应用内部，打开即用，不需要联网。应用自身不发起任何网络请求，也不加载外部网页或远程脚本。',
+    body: '所有教学内容（分子与原子结构、反应动画、3D 场景引擎）均打包在应用内部，打开即用，不需要联网。除「问答助手」外，应用自身不发起任何网络请求，也不加载外部网页或远程脚本。',
   },
   {
     title: '系统权限',
@@ -29,7 +29,11 @@ const sections: { title: string; body: string }[] = [
   },
   {
     title: '第三方 SDK',
-    body: '本应用未接入任何第三方统计分析、广告、推送或社交登录 SDK，不存在向第三方共享数据的情形。',
+    body: '本应用未接入任何第三方统计分析、广告、推送或社交登录 SDK。唯一的第三方服务是「问答助手」—— 它以网页形式打开你选择的那个网站，详见下一节。',
+  },
+  {
+    title: '问答助手（第三方网站）',
+    body: '「问答助手」是屏幕右下角的悬浮球，点开后会在应用内打开你在设置里选择的网站，目前可选 Bing 搜索（www.bing.com）、DeepSeek（chat.deepseek.com）、豆包（www.doubao.com/chat/），默认为 Bing 搜索。这些网站由各自的公司运营，需要登录的要你自行注册或登录；你在其中的搜索记录、提问内容、对话与登录信息，均由对方按其自身的隐私政策处理，本应用不获取、不保存、不上传这些内容，也看不到你的对话。该功能默认开启，你可以随时关掉悬浮球，并在「关于」页右上角的设置里重新打开、更换网站或清理网页；不使用它时，应用不会与这些网站发生任何通信。',
   },
   {
     title: '关于未成年人',
@@ -56,7 +60,7 @@ export default function PrivacyScreen({ onBack }: { onBack: () => void }) {
           <Text style={styles.backText}>返回</Text>
         </Pressable>
         <Text style={styles.title}>隐私政策</Text>
-        <Text style={styles.subtitle}>生效日期：{EFFECTIVE} · 版本 1.0</Text>
+        <Text style={styles.subtitle}>生效日期：{EFFECTIVE} · 版本 1.2</Text>
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {sections.map((s) => (

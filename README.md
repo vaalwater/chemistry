@@ -152,6 +152,14 @@ open ios/*.xcworkspace
 2. 若涉及反应，在 `reactions` 增加一条并引用上述分子 id，`steps[].show` 取值 `reactants / mixing / products` 对应引擎的状态机三阶段。
 3. 重新执行：`npm run build:engine` → `npx expo export --platform web` → 预览验证。
 
+> 未收录进 `content.json` 的物质（反应推导的产物、输入框里手打的分子式）由 `src/formulaBuilder.ts`
+> 按分子式自动建模，改动这里要注意两条约定：
+> - **中心原子由电负性决定**（`pickCentral`），不是「分子式里第一个非氢元素」—— 否则 `FeCl₃`
+>   （推导时会按字母排序写成 `Cl3Fe`）会画成 Cl 居中挂着两个 Cl 和一个 Fe。
+> - **配位数决定构型**：2 直线 / 3 平面三角 / 4 正四面体 / 5 三角双锥 / 6 八面体（`ligandDirs`），
+>   H 优先挂在电负性大的配体上（氢氧化物因此画成 Fe–O–H 而不是 Fe 同时连 O 和 H）。
+> - 画面上的离子化合物只是**一个式量单元**，真实结构写在 `STRUCT_NOTE`（如无水 FeCl₃ 实为 Fe³⁺ 八面体配位的层状离子晶体）。
+
 ## 免责声明
 
 本应用仅供学习辅助，内容表述以人教版高中化学教材为准；如有出入请以教材为准。

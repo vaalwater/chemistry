@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import type { MoleculeData, ReactionDrama, SceneReq } from './src/types';
@@ -10,6 +10,7 @@ import SubjectTabs from './src/screens/SubjectTabs';
 import BrowseScreen from './src/screens/BrowseScreen';
 import ReactionsScreen from './src/screens/ReactionsScreen';
 import AboutScreen from './src/screens/AboutScreen';
+import AssistantSettingsScreen from './src/screens/AssistantSettingsScreen';
 import PrivacyScreen from './src/screens/PrivacyScreen';
 import SceneScreen from './src/screens/SceneScreen';
 import HandsOnScreen from './src/screens/HandsOnScreen';
@@ -21,6 +22,7 @@ import { dramaForKnownReaction } from './src/reactionEngine';
 import type { KnowledgeTarget } from './src/knowledge/knowledgeData';
 import KnowledgeScreen from './src/screens/KnowledgeScreen';
 import AppSplash from './src/components/AppSplash';
+import AskFab from './src/components/AskFab';
 
 type TabKey = 'browse' | 'reaction' | 'handson';
 
@@ -49,6 +51,19 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   /** 「隐私政策」页：从「关于」页进入（上架应用商店需要） */
   const [showPrivacy, setShowPrivacy] = useState(false);
+  /** 「问答助手设置」页：从「关于」页右上角的齿轮进入 */
+  const [showAssistantSettings, setShowAssistantSettings] = useState(false);
+  // 设置页的入场动画：淡入 + 从右轻推一点，让它像「跳」过去而不是「长」出来
+  const settingsAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!showAssistantSettings) return;
+    settingsAnim.setValue(0);
+    Animated.timing(settingsAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [showAssistantSettings, settingsAnim]);
   const [scene, setScene] = useState<SceneReq | null>(null);
   /** 半径比·配位数实验独立成页（token 用来让同一入口可以重复打开） */
   const [lab, setLab] = useState<{ entry: RadiusLabEntry; token: number } | null>(null);
@@ -225,6 +240,7 @@ export default function App() {
   /** 预选信息变化时强制重建频道组件，保证 initialView / initialItem 生效一次 */
   const initKey = `${init?.view ?? ''}|${init?.item ?? ''}|${init?.section ?? ''}`;
 
+
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
@@ -239,7 +255,11 @@ export default function App() {
         ) : showPrivacy ? (
           <PrivacyScreen onBack={() => setShowPrivacy(false)} />
         ) : showAbout ? (
-          <AboutScreen onBack={() => setShowAbout(false)} onOpenPrivacy={() => setShowPrivacy(true)} />
+          <AboutScreen
+            onBack={() => setShowAbout(false)}
+            onOpenPrivacy={() => setShowPrivacy(true)}
+            onOpenAssistantSettings={() => setShowAssistantSettings(true)}
+          />
         ) : (
           <HomeScreen
             onPick={pickSubject}
@@ -281,6 +301,36 @@ export default function App() {
           onExit={backToSubjects}
         />
       )}
+      {/*
+        问答助手设置：**必须放在学科分支之外**（在化学 / 数学页点气泡才跳得过来），
+        但**也必须铺满全屏** —— 它和学科页面并存的话，两者会各占一半屏幕，
+        设置页就被挤到页面下半部分去了。所以外面套一层绝对定位的满屏容器：
+        看起来跟「跳转到新页面」一样，也不会露出下面错位的内容。
+      */}
+      {showAssistantSettings ? (
+        <Animated.View
+          style={[
+            styles.settingsCover,
+            {
+              opacity: settingsAnim,
+              transform: [
+                {
+                  translateX: settingsAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [22, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <AssistantSettingsScreen onBack={() => setShowAssistantSettings(false)} />
+        </Animated.View>
+      ) : null}
+      {/* 全站悬浮问答入口：开屏动画期间不显示，免得盖住启动画面；设置页打开时收起来 */}
+      {!splash && !showAssistantSettings ? (
+        <AskFab onOpenSettings={() => setShowAssistantSettings(true)} />
+      ) : null}
     </SafeAreaProvider>
   );
 }
@@ -368,4 +418,15 @@ function ChemistryTabs({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { flex: 1 },
+  // 设置页的满屏容器：铺满 + 盖在最上层，这样它才是「跳」出来的页面，
+  // 而不是和当前页面并排各占一半（那会掉到页面下半部分）
+  settingsCover: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.bg,
+    zIndex: 50,
+  },
 });

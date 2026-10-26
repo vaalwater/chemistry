@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Chem3DView, { type Chem3DHandle } from '../components/Chem3DView';
@@ -34,6 +45,15 @@ interface Props {
   /** 离子晶体类分子（NaCl 等）跳转到“半径比·配位数实验” */
   onOpenRadiusLab?: (molId: string) => void;
 }
+
+const SCREEN_H = Dimensions.get('window').height;
+/**
+ * 底部介绍卡片**内容区**的最高高度，超过就在卡片内滚动。
+ * ⚠️ 这个值直接决定 3D 画布还剩多少地方 —— 卡片是用 `onLayout` 量出来再上报给引擎的
+ * （`cardH` → `view band`），卡片每高 1pt，画布就少 1pt。原子页的介绍很长，
+ * 原来整块展开会把画布压得只剩一条，所以这里封顶在屏高的 46%，剩下的都留给画布。
+ */
+const CARD_BODY_MAX = Math.round(SCREEN_H * 0.46);
 
 /** 反应展示元数据：内置 ReactionData 与宿主下发剧幕 Drama 共用视图（都带 step title/desc） */
 export interface ReactionView {
@@ -806,6 +826,8 @@ function AtomPanel({
   onBond?: (action: 'play' | 'pause' | 'restart' | 'next' | 'prev') => void;
 }) {
   const [folded, setFolded] = useState(false);
+  /** 全屏阅读：长介绍被 CARD_BODY_MAX 截断时，给一个能完整读完的出口 */
+  const [fullRead, setFullRead] = useState(false);
   const shells = shellsForIon(element, charge);
   const shellCfg = electronShellConfigs(shells);
   const cfgText = electronConfigText(shells);
@@ -820,15 +842,14 @@ function AtomPanel({
       : `在此化合物中为 ${ionName}：${element.symbol} 得到 ${Math.abs(charge)} 个电子，排布 ${shells.join(',')}`
     : `电子排布 ${shells.join(',')} · 共 ${electrons} 个电子`;
   const foldTitle = `${ionName} · ${element.name}`;
-  if (folded) {
-    return (
-      <View style={[styles.card, styles.cardTight]}>
-        <FoldToggle title={foldTitle} folded onToggle={() => setFolded(false)} />
-      </View>
-    );
-  }
-  return (
-    <View style={styles.card}>
+
+  /**
+   * 介绍正文。**卡片区与「全屏阅读」共用这一份**：
+   * full=false → 交给外层 ScrollView 封顶滚动，长文本截断行数；
+   * full=true  → 不截断，让人一口气读完。
+   */
+  const body = (full: boolean) => (
+    <>
       <View style={styles.atomHead}>
         <View style={[styles.atomBadge, { borderColor: element.color }]}>
           <Text style={[styles.atomBadgeText, { color: element.color }]}>{ionName}</Text>
@@ -899,17 +920,17 @@ function AtomPanel({
       {!(atomCtx && atomCtx.bondE > 0) ? (
         <View style={styles.octetWrap}>
           <Text style={styles.octetTag}>八隅体</Text>
-          <Text style={styles.octetText} numberOfLines={2}>
+          <Text style={styles.octetText} numberOfLines={full ? undefined : 2}>
             {octetText}
           </Text>
         </View>
       ) : null}
-      <Text style={styles.desc} numberOfLines={3}>
+      <Text style={styles.desc} numberOfLines={full ? undefined : 3}>
         {element.desc.split('。')[0]}。 {summary}。
       </Text>
       {atomCtx && (atomCtx.bondE > 0 || atomCtx.piE > 0) ? (
         <View style={styles.covNoteWrap}>
-          <Text style={styles.covNote} numberOfLines={4}>
+          <Text style={styles.covNote} numberOfLines={full ? undefined : 4}>
             {atomCtx.molName ? `在 ${atomCtx.molName} 中 · ` : ''}
             最外层 {atomCtx.valenceE} 个电子各有归属：
             {atomCtx.loneE > 0 ? `${Math.round(atomCtx.loneE / 2)} 对孤对电子（${atomCtx.loneE} 个，不共用）` : ''}
@@ -921,12 +942,12 @@ function AtomPanel({
               : ''}
           </Text>
           {atomCtx.bigPi ? (
-            <Text style={styles.covNoteSub} numberOfLines={2}>
+            <Text style={styles.covNoteSub} numberOfLines={full ? undefined : 2}>
               大 π 键的电子为 {atomCtx.bigPi.centers} 个原子共有（离域），所以 {atomCtx.molName || '该分子'} 中两个
               O–O 键的键长、键能完全相同，并不是一单一双。
             </Text>
           ) : (
-            <Text style={styles.covNoteSub} numberOfLines={2}>
+            <Text style={styles.covNoteSub} numberOfLines={full ? undefined : 2}>
               与相邻原子各出一个电子配成共用电子对，双方共用后最外层都达到 8 电子（H 为 2）稳定结构。
             </Text>
           )}
@@ -979,9 +1000,41 @@ function AtomPanel({
         {atomCtx?.bigPi ? ' · 紫=大 π 键（多原子共有）' : ''}
         {atomCtx?.molName ? ' · 轻点外圈原子核球切换查看' : ''}
       </Text>
+    </>
+  );
 
-      <FoldToggle title={foldTitle} onToggle={() => setFolded(true)} />
-    </View>
+  return (
+    <>
+      {folded ? (
+        <View style={[styles.card, styles.cardTight]}>
+          <FoldToggle
+            title={foldTitle}
+            folded
+            onToggle={() => setFolded(false)}
+            onExpandAll={() => setFullRead(true)}
+          />
+        </View>
+      ) : (
+        <View style={styles.card}>
+          <ScrollView
+            style={styles.cardBodyScroll}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+          >
+            {body(false)}
+          </ScrollView>
+          {/* 操作条钉在卡片底部，不跟内容一起滚走 */}
+          <FoldToggle
+            title={foldTitle}
+            onToggle={() => setFolded(true)}
+            onExpandAll={() => setFullRead(true)}
+          />
+        </View>
+      )}
+      <FullReadSheet visible={fullRead} title={foldTitle} onClose={() => setFullRead(false)}>
+        {body(true)}
+      </FullReadSheet>
+    </>
   );
 }
 
@@ -990,10 +1043,13 @@ function FoldToggle({
   title,
   folded,
   onToggle,
+  onExpandAll,
 }: {
   title: string;
   folded?: boolean;
   onToggle: () => void;
+  /** 有值时展开态多一个「全屏阅读」入口（目前只有原子页用得到） */
+  onExpandAll?: () => void;
 }) {
   if (folded) {
     return (
@@ -1015,15 +1071,77 @@ function FoldToggle({
     );
   }
   return (
-    <Pressable
-      style={styles.foldUp}
-      onPress={onToggle}
-      accessibilityRole="button"
-      accessibilityLabel="收起介绍"
-    >
-      <Ionicons name="chevron-up" size={13} color={colors.faint} />
-      <Text style={styles.foldUpText}>收起介绍</Text>
-    </Pressable>
+    <View style={styles.foldUpRow}>
+      <Pressable
+        style={styles.foldUp}
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityLabel="收起介绍"
+      >
+        <Ionicons name="chevron-up" size={13} color={colors.faint} />
+        <Text style={styles.foldUpText}>收起介绍</Text>
+      </Pressable>
+      {/*「完全展开」：卡片区为了不压住 3D 画布只能封顶滚动，想一口气读完就走这里 */}
+      {onExpandAll ? (
+        <Pressable
+          style={styles.expandBtn}
+          onPress={onExpandAll}
+          hitSlop={4}
+          accessibilityRole="button"
+          accessibilityLabel="全屏阅读完整介绍"
+        >
+          <Ionicons name="expand-outline" size={14} color={colors.accent} />
+          <Text style={styles.expandBtnText}>全屏阅读</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * 全屏阅读介绍。
+ *
+ * ⚠️ 为什么卡片区不能直接无限展开：那张卡的高度是用 `onLayout` 量出来、上报给 3D 引擎当
+ *    「可视带」下边界的（`cardH` → `view band`），卡片长一寸画布就短一寸。原子页的介绍又长，
+ *    全铺开会把画布压成一条缝。所以默认封顶 + 滚动，完整版交给这个全屏页。
+ */
+function FullReadSheet({
+  visible,
+  title,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={[styles.fullRoot, { paddingTop: insets.top }]}>
+        <View style={styles.fullHead}>
+          <Text style={styles.fullTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          <Pressable
+            style={styles.fullClose}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="退出全屏阅读"
+          >
+            <Ionicons name="close" size={20} color={colors.inkSoft} />
+          </Pressable>
+        </View>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.fullBody, { paddingBottom: insets.bottom + 28 }]}
+        >
+          {children}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1499,15 +1617,59 @@ const styles = StyleSheet.create({
     color: colors.accent,
     marginLeft: 3,
   },
-  foldUp: {
+  // 卡片正文的滚动区：超过 CARD_BODY_MAX 就在卡内滚动，不再顶高整个卡片
+  cardBodyScroll: {
+    maxHeight: CARD_BODY_MAX,
+  },
+  foldUpRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
+    justifyContent: 'space-between',
+    marginTop: 10,
     paddingTop: 9,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(22,50,79,0.1)',
   },
+  foldUp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  expandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#eef4ff',
+  },
+  expandBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.accent,
+  },
+  fullRoot: { flex: 1, backgroundColor: colors.bg },
+  fullHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+    backgroundColor: colors.card,
+  },
+  fullTitle: { flex: 1, fontSize: 17, fontWeight: '800', color: colors.ink },
+  fullClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f4f9',
+  },
+  fullBody: { padding: 14, gap: 0 },
   foldUpText: {
     fontSize: 12,
     fontWeight: '600',

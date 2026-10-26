@@ -10,6 +10,7 @@ import {
   normalizeFormula,
   parseCounts,
   parseCountsLenient,
+  pickCentral,
   sameFormula,
 } from './formulaBuilder';
 import type { CountMap } from './formulaBuilder';
@@ -80,6 +81,37 @@ const VAL: Record<string, number> = {
 };
 const METAL_EL = new Set(['Li', 'Na', 'K', 'Mg', 'Ca', 'Ba', 'Al', 'Zn', 'Fe', 'Cu', 'Ag']);
 const SINGLE_ELEMENT = new Set(['H2', 'O2', 'N2', 'Cl2', 'Br2', 'F2']);
+
+/**
+ * 非金属单质 → 它对应的阴离子。金属与它化合就生成无氧盐（Fe + Cl₂ → FeCl₃）。
+ * strong = 氧化性是否强 —— **它决定变价金属被氧化到几价**，见下面两张价态表。
+ */
+const NONMETAL_ANION: Record<
+  string,
+  { counts: CountMap; charge: number; cn: string; el: string; strong: boolean; cond: string }
+> = {
+  f2: { counts: { F: 1 }, charge: 1, cn: '氟气', el: 'F', strong: true, cond: '暗处即剧烈化合' },
+  cl2: { counts: { Cl: 1 }, charge: 1, cn: '氯气', el: 'Cl', strong: true, cond: '点燃' },
+  br2: { counts: { Br: 1 }, charge: 1, cn: '溴', el: 'Br', strong: true, cond: '加热' },
+  n2: { counts: { N: 1 }, charge: 3, cn: '氮气', el: 'N', strong: true, cond: '点燃' },
+  s: { counts: { S: 1 }, charge: 2, cn: '硫', el: 'S', strong: false, cond: '加热' },
+};
+
+/**
+ * ⚠️ 变价金属的价态取决于氧化剂的强弱 —— 这是高中常考点，取错整个方程式就是错的：
+ *   强氧化剂（Cl₂ / Br₂ / F₂）→ Fe 到 +3（FeCl₃）、Cu 到 +2（CuCl₂）
+ *   弱氧化剂（S）            → Fe 只到 +2（FeS）、Cu 只到 +1（Cu₂S）
+ * 不在表里的金属（Na / Mg / Al / Zn…）只有一种价态，直接用 VAL。
+ */
+const VAL_STRONG_OX: Record<string, number> = { Fe: 3, Cu: 2 };
+const VAL_WEAK_OX: Record<string, number> = { Fe: 2, Cu: 1 };
+
+/**
+ * 金属活动性顺序里排在**氢之前**的金属 —— 只有它们能把酸中的氢置换出来。
+ * ⚠️ Cu / Ag 排在氢之后，与稀盐酸、稀硫酸**不反应**。
+ *    不检查这一条的话，Cu + HCl 会被算成 CuCl₂ + H₂，那是高中化学里典型的错误。
+ */
+const METAL_BEFORE_H = new Set(['Li', 'Na', 'K', 'Ca', 'Ba', 'Mg', 'Al', 'Zn', 'Fe']);
 
 /** 已识别酸：{Hn}An，key 为归一化式（小写）→ 酸的氢数 */
 const KNOWN_ACIDS: Record<string, { h: number; name: string }> = {
@@ -344,7 +376,9 @@ function ensureMol(formulaAscii: string): MoleculeData {
   const parts: MoleculeData['atoms'] = [];
   const bonds: MoleculeData['bonds'] = [];
   const golden = Math.PI * (3 - Math.sqrt(5));
-  const center = els.find((e) => e !== 'H') || els[0];
+  // 中心同样交给 pickCentral 裁决：别再按「分子式里第一个非氢元素」挑，
+  // 那样 Cl3Fe 这种排序会把 Cl 画到中间（FeCl₃ 的真实中心是 Fe）
+  const center = counts ? pickCentral(counts) : els.find((e) => e !== 'H') || els[0] || 'H';
   parts.push({ el: center, pos: [0, 0, 0] });
   let ai = 1;
   els.forEach((el, ei) => {
@@ -430,6 +464,12 @@ function stepsOf(kind: string, rNames: string[], lhsF: string, rhsF: string, con
     s2 = `${s1} 在${cond || '加热'}下旧化学键断裂，结构瓦解。`;
     s3 = `键能吸收热量，电子按新的稳定构型重新分配（部分分解含化合价变化，见产物）。`;
     s4 = `形成稳定小分子/晶体并逸出气体。`;
+  } else if (kind === 'metal_nonmetal') {
+    const mv = p?.val || 1;
+    const me = p?.metal || '金属';
+    s2 = `${s1} 相遇：金属键断裂成原子，${rNames[1]}分子内的共价键也断裂，两类原子相互靠近。`;
+    s3 = `${me}原子把最外层 ${mv} 个电子交给${rNames[1]}的原子 —— ${me} → ${me}${sup(mv)}+，对方得电子成为阴离子。`;
+    s4 = `${me}${sup(mv)}+ 与阴离子靠静电作用、按电荷比结合成离子化合物 ${rhsF}。`;
   } else if (kind === 'double_exchange') {
     s2 = `${s1} 在溶液中电离为自由离子，离子相互交换组合。`;
     s3 = `各离子保持原有电子构型，交换伴侣：阳离子 + 新阴离子 / 阴离子 + 新阳离子。`;
@@ -497,6 +537,25 @@ export interface DeriveOptions {
   env?: ReactionEnv;
 }
 
+/**
+ * 中文名 → 标准 ascii 分子式，让「铁 + 氯气」这类输入也能直接用。
+ * ① 元素表按中文名反查（铁 → Fe、硫 → S）
+ * ② 分子表按中文名找（氯气 → Cl2、盐酸 → HCl）
+ * 找不到就返回 null，交给后面的宽松解析（fe → Fe）兜底。
+ */
+function chineseNameToFormula(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const el = content.elements.find((e) => e.name === s);
+  if (el) return el.symbol;
+  const list = allMolecules();
+  const m =
+    list.find((x) => x.name === s) ??
+    (s.length >= 2 ? list.find((x) => (x.name || '').includes(s)) : undefined);
+  if (m) return normalizeFormula(m.formulaAscii || m.formula) || null;
+  return null;
+}
+
 export function deriveDramaFromInputs(
   rawA: string,
   rawB: string,
@@ -516,8 +575,27 @@ export function deriveDramaFromInputs(
   // 0) 大小写宽容：标准解析失败时按不区分大小写重新解析并还原标准写法（HCL→HCl、NA→Na）
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
-    if (parseCounts(p)) continue;
-    const c = parseCountsLenient(p);
+    const strict = parseCounts(p);
+    if (strict) {
+      /*
+       * ⚠️ 光「能解析」还不够，必须把 parts 回写成标准写法：
+       * 后面 SINGLE_ELEMENT / 各类查表都是**大小写敏感**的，
+       * 'cl2' 留在数组里的话 `SINGLE_ELEMENT.has('cl2')` 为 false，氯气就不会被认成单质，
+       * 于是 Fe + Cl₂ 被判成不反应 —— 这正是「输小写就不反应」的原因。
+       * 只在「字母顺序相同、只是大小写不同」时回写（cl2→Cl2、fe→Fe），
+       * 否则会把 NaOH 重排成 HNaO（formulaOfCounts 按 C/H 优先排序）。
+       */
+      const std = formulaOfCounts(strict);
+      if (std !== p && std.toLowerCase() === p.toLowerCase()) parts[i] = std;
+      continue;
+    }
+    // 中文名：「铁」→ Fe（元素表）、「氯气」→ Cl2（分子表）
+    const cn = chineseNameToFormula(p);
+    if (cn) {
+      parts[i] = cn;
+      continue;
+    }
+    const c = parseCountsLenient(p); // FE / CL2 这类全大写
     if (c) parts[i] = formulaOfCounts(c);
   }
 
@@ -720,10 +798,37 @@ function derivePatterns(parts: string[]): MaybeDrama {
     const r = deriveTwo(perm[0], perm[1]);
     if (r) return { drama: r, note: '已按守恒与常见反应模式自动推导；产物为经验推测，仅供参考，请以实验/教科书为准。' };
   }
+  // 明确「确实不反应」的组合，要说出原因 ——
+  // 否则用户会以为是我们推导不出，而不是这两个东西根本不反应。
+  const why = inactiveReason(parts);
+  if (why) return { drama: null, error: why };
   return {
     drama: null,
     error: '暂未能从该组合推导出可靠的常见反应产物。\n可尝试：金属+酸（Zn+HCl）、酸+碱（NaOH+HCl）、燃烧（CH4+O2、C+O2）、分解（H2O2）等，或从下方实验列表进入。',
   };
+}
+
+/**
+ * 判断这个组合是不是**本来就不反应**，是的话给出教学解释。
+ * 目前覆盖：排在氢之后的金属（Cu / Ag）+ 非氧化性酸（稀盐酸、稀硫酸）。
+ * ⚠️ 这是一类常见的考点，也是原来会算错的地方（曾被算成 CuCl₂ + H₂）。
+ */
+function inactiveReason(parts: string[]): string | null {
+  const ps = parts.map((p) => inspect(p)).filter(Boolean) as CompoundPart[];
+  const acid = ps.find((p) => p.kind === 'acid');
+  if (!acid) return null;
+  const metal = ps.find(
+    (p) => p.kind === 'element' && keysC(p.counts).every((e) => METAL_EL.has(e))
+  );
+  if (!metal) return null;
+  const sym = keysC(metal.counts)[0];
+  if (METAL_BEFORE_H.has(sym)) return null;
+  // 硝酸有强氧化性，跟铜、银是能反应的（只是不生成 H₂），这里不能说「不反应」
+  if ((acid.key || '').toLowerCase() === 'hno3') return null;
+  const nm = elementBySymbol(sym)?.name || sym;
+  // HCl 在库里叫「氯化氢」，但反应语境下说「盐酸」才符合课堂习惯
+  const acidName = acid.name === '氯化氢' ? '盐酸' : acid.name || '稀盐酸、稀硫酸';
+  return `${nm}在金属活动性顺序中排在氢之后，不能把酸中的氢置换出来 —— ${nm}与${acidName}不反应。`;
 }
 
 function neutralSalt(countsOfAnion: CountMap, anionCharge: number, metal: string, cationVal: number): CountMap | null {
@@ -918,6 +1023,11 @@ function deriveTwo(rawA: string, rawB: string): ReactionDrama | null {
   const acidP = a.kind === 'acid' ? a : b.kind === 'acid' ? b : null;
   if (metalP && acidP && acidP.anionCounts && acidP.anionCharge != null) {
     const sym = keysC(metalP.counts)[0];
+    // ⚠️ 先看活动性顺序：排在氢之后的金属（Cu / Ag）置换不出氢气。
+    //    原来缺这一步，Cu + HCl 会算出 CuCl₂ + H₂ —— 实际上是「不反应」，给了反的结论。
+    // 这里只能返回 null（该函数签名是 ReactionDrama | null），
+    // 「为什么不反应」的准确说明由 derivePatterns 里的 inactiveReason 给出。
+    if (!METAL_BEFORE_H.has(sym)) return null;
     const val = VAL[sym] || 2;
     const saltC = neutralSalt(acidP.anionCounts, acidP.anionCharge, sym, val);
     const h2c = parseCounts('H2');
@@ -946,6 +1056,58 @@ function deriveTwo(rawA: string, rawB: string): ReactionDrama | null {
       ions: { [sym]: val },
       transfers: [{ a: sym, b: 'H', n: val }],
     };
+  }
+
+  // —— 金属 + 非金属单质 → 无氧盐（2Fe + 3Cl₂ → 2FeCl₃、Fe + S → FeS）——
+  // 这一类原先完全没有规则，导致「铁 + 氯气」被判成不反应 —— 可它是高中最经典的化合反应之一。
+  if (metalP) {
+    const otherP = metalP === a ? b : a;
+    const nm = otherP?.kind === 'element' ? NONMETAL_ANION[(otherP?.key || '').toLowerCase()] : undefined;
+    if (nm && otherP) {
+      const sym = keysC(metalP.counts)[0];
+      // 变价金属按氧化剂强弱取价：Cl₂ 把 Fe 氧化到 +3，S 只能到 +2
+      const table = nm.strong ? VAL_STRONG_OX : VAL_WEAK_OX;
+      const val = table[sym] ?? VAL[sym] ?? 2;
+      const saltC = neutralSalt(nm.counts, nm.charge, sym, val);
+      if (saltC) {
+        const sol = solve([metalP.counts, otherP.counts], [saltC], 12);
+        if (sol) {
+          const sc = (v: number) => Math.max(1, v);
+          const metalName = elementBySymbol(sym)?.name || sym;
+          const saltF = formulaOfCounts(saltC);
+          const saltMol = ensureMol(saltF); // FeCl₃ 等未收录的化合物会自动建模
+          const lhsSp = [
+            toDramaSpecies(ensureMol(formulaOfCounts(metalP.counts)), sc(sol[0])),
+            toDramaSpecies(ensureMol(formulaOfCounts(otherP.counts)), sc(sol[1])),
+          ];
+          const rhsSp = [toDramaSpecies(saltMol, sc(sol[2]))];
+          const steps = stepsOf(
+            'metal_nonmetal',
+            [metalName, nm.cn],
+            '',
+            saltMol.formula,
+            nm.cond,
+            { metal: sym, val }
+          );
+          return {
+            id: 'rx_mnm_' + saltF.toLowerCase(),
+            name: `${metalName}与${nm.cn}化合`,
+            equation: equationOf(lhsSp, rhsSp),
+            condition: nm.cond,
+            type: '化合反应（氧化还原）',
+            level: '必修',
+            desc: nm.strong
+              ? `${nm.cn}是强氧化剂，把${metalName}氧化到 +${val} 价，生成${saltMol.formula}。`
+              : `${nm.cn}氧化性较弱，只能把${metalName}氧化到 +${val} 价，生成${saltMol.formula}（对比：氯气能把铁氧化到 +3 价的 FeCl₃）。`,
+            lhs: lhsSp,
+            rhs: rhsSp,
+            steps,
+            ions: { [sym]: val },
+            transfers: [{ a: sym, b: nm.el, n: val }],
+          };
+        }
+      }
+    }
   }
 
   // —— 酸 + 碱 → 盐 + H2O ——

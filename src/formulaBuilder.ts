@@ -34,6 +34,86 @@ function rotV(v: V3, axis: V3, ang: number): V3 {
 const TETRA: V3[] = [
   [1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1],
 ].map((t) => norm(t as V3));
+
+/**
+ * 电负性（Pauling 近似值）—— 决定「谁是中心原子」。
+ *
+ * ⚠️ 这里曾经用「分子式里第一个出现的非氢元素」当中心，而我们在推导产物时习惯把计数排序成
+ *    `Cl3Fe`（按字母），于是 FeCl₃ 画成了 **Cl 居中、挂着两个 Cl 和一个 Fe** —— 完全反了。
+ *    化合物里中心一定是**更正电**（电负性更小）的那一方：盐/卤化物里就是金属阳离子。
+ */
+const EN: Record<string, number> = {
+  Li: 0.98, Be: 1.57, B: 2.04, C: 2.55, N: 3.04, O: 3.44, F: 3.98,
+  Na: 0.93, Mg: 1.31, Al: 1.61, Si: 1.90, P: 2.19, S: 2.58, Cl: 3.16,
+  K: 0.82, Ca: 1.00, Cr: 1.66, Mn: 1.55, Fe: 1.83, Cu: 1.90, Zn: 1.65,
+  Br: 2.96, Ag: 1.93, I: 2.66, Ba: 0.89, Pb: 2.33, H: 2.20,
+  He: 2.0, Ne: 2.0, Ar: 2.0,
+};
+/** 共价半径（Å）：两个原子半径相加≈一根单键的长度，和上面 L_CH/L_CO 那套常量同量纲 */
+const COV: Record<string, number> = {
+  H: 0.31, C: 0.76, N: 0.71, O: 0.66, F: 0.57, P: 1.07, S: 1.05, Cl: 0.99, Br: 1.14, I: 1.33,
+  Li: 1.28, Be: 0.96, B: 0.84, Na: 1.66, Mg: 1.41, Al: 1.21, Si: 1.11, K: 2.03, Ca: 1.76,
+  Cr: 1.39, Mn: 1.39, Fe: 1.32, Cu: 1.32, Zn: 1.22, Ag: 1.45, Ba: 1.98, Pb: 1.46,
+  He: 0.28, Ne: 0.58, Ar: 0.71,
+};
+/** 金属 / 卤素：判断「这是不是一坨离子化合物」用 */
+const METALS = new Set(['Li', 'Be', 'Na', 'Mg', 'Al', 'K', 'Ca', 'Cr', 'Mn', 'Fe', 'Cu', 'Zn', 'Ag', 'Ba', 'Pb']);
+const HALOGENS = new Set(['F', 'Cl', 'Br', 'I']);
+
+/** 按电负性挑中心原子：化合物里最「正电」的那方居中（FeCl₃ → Fe，NaCl → Na，SO₂ → S） */
+export function pickCentral(c: CountMap): string {
+  const els = Object.keys(c).filter((el) => (c[el] || 0) > 0);
+  if (!els.length) return 'H';
+  const pool = els.filter((el) => el !== 'H');      // H 永远挂在外围，不当中心
+  const list = pool.length ? pool : els;
+  return list.reduce((best, el) => {
+    if ((EN[el] ?? 2.0) < (EN[best] ?? 2.0)) return el;
+    // 电负性相同时取原子数少的那个做中心（如 Cl₂ 两个都一样，取第一个即可）
+    if ((EN[el] ?? 2.0) === (EN[best] ?? 2.0) && (c[el] || 0) < (c[best] || 0)) return el;
+    return best;
+  }, list[0]);
+}
+function bondLenOf(a: string, b: string): number {
+  const sum = (COV[a] ?? 1.0) + (COV[b] ?? 1.0);
+  return Math.min(2.4, Math.max(1.0, sum));
+}
+/** 已经连着中心原子的配体还能再接几个 H：O 再接 1 个（–OH）、N 再接 2 个、卤素和金属都不接 H */
+function hostCapacity(el: string): number {
+  if (METALS.has(el) || HALOGENS.has(el)) return 0;
+  return EXTRA_H[el] ?? 1;
+}
+const EXTRA_H: Record<string, number> = { O: 1, S: 1, N: 2, C: 3, P: 2, Si: 2, B: 2 };
+/**
+ * n 个配体的方向：按配位数摆成标准构型，而不是随手散点。
+ * 2 直线 / 3 平面三角（气相 FeCl₃、BF₃ 就是它）/ 4 正四面体 / 5 三角双锥 / 6 八面体，再多则球面均匀铺开。
+ */
+function ligandDirs(n: number): V3[] {
+  if (n <= 0) return [];
+  if (n === 1) return [[0, 1, 0]];
+  if (n === 2) return [[1, 0, 0], [-1, 0, 0]];
+  if (n === 3) return [0, 1, 2].map((i) => {
+    const a = Math.PI / 2 + (i * 2 * Math.PI) / 3;
+    return [Math.cos(a), Math.sin(a), 0] as V3;
+  });
+  if (n === 4) return TETRA.slice();
+  if (n === 5) {
+    const eq = [0, 1, 2].map((i) => {
+      const a = (i * 2 * Math.PI) / 3;
+      return [Math.cos(a), 0, Math.sin(a)] as V3;
+    });
+    return [[0, 1, 0], [0, -1, 0], ...eq];
+  }
+  if (n === 6) return [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  const out: V3[] = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (2 * i + 1) / n;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const a = golden * i;
+    out.push([Math.cos(a) * r, y, Math.sin(a) * r] as V3);
+  }
+  return out;
+}
 /** 给碳原子生成 k 个“空闲键”方向（尽量避开已占用方向） */
 function dirsFor(k: number, fixed: V3[]): V3[] {
   const out: V3[] = [];
@@ -145,7 +225,54 @@ export function parseCounts(raw: string): CountMap | null {
 export function parseCountsLenient(raw: string): CountMap | null {
   const s = normalizeFormula(raw).toLowerCase();
   if (!s) return null;
-  return parseCountsOf(s);
+  return parseCountsLower(s);
+}
+
+/**
+ * 全小写时，这两组两字母会被误认成金属符号 —— 一律拆成 C+O / N+O：
+ * co2 是二氧化碳（不是 Co₂ 钴），no2 是二氧化氮（不是 No₂ 锘），ch3cooh 里的 cooh 同理。
+ * 钴 / 锘在高中化学里用不到，这么取舍才符合实际输入。
+ */
+const TWO_LETTER_SPLIT = new Set(['co', 'no']);
+
+function symbolCI(low: string): string | undefined {
+  return SYMBOLS.find((x) => x.toLowerCase() === low);
+}
+
+/**
+ * 小写串的贪心切分：fe→Fe、cl2→Cl2、hcl→HCl、h2so4→H2SO4。
+ *
+ * ⚠️ 之前的写法只是把串转小写就丢给 `parseCountsOf`，而 `lex` 靠「大写字母开头」辨认元素 ——
+ *    小写串根本切不出来（fe 被当成 f + e），所以那个兜底从来没生效过，
+ *    用户输入 fe / cl2 一律被判成不反应。现在在这里真正按符号表重新切分。
+ */
+function parseCountsLower(s: string): CountMap | null {
+  const src = s.replace(/[^a-z0-9]/g, '');
+  if (!src) return null;
+  const out: CountMap = {};
+  let i = 0;
+  while (i < src.length) {
+    let sym: string | undefined;
+    const two = src.slice(i, i + 2);
+    if (two.length === 2 && !/[0-9]/.test(two) && !TWO_LETTER_SPLIT.has(two)) {
+      sym = symbolCI(two);
+      if (sym) i += 2;
+    }
+    if (!sym) {
+      sym = symbolCI(src.slice(i, i + 1));
+      if (!sym) return null;
+      i += 1;
+    }
+    let n = '';
+    while (i < src.length && /[0-9]/.test(src[i])) {
+      n += src[i];
+      i += 1;
+    }
+    const cnt = n ? parseInt(n, 10) : 1;
+    if (!cnt || cnt > 60) return null;
+    out[sym] = (out[sym] || 0) + cnt;
+  }
+  return Object.keys(out).length ? out : null;
 }
 function parseCountsOf(s: string): CountMap | null {
   const tokens = lex(s);
@@ -461,6 +588,42 @@ function structuralAscii(kind: string, nC: number): string | undefined {
   return undefined;
 }
 interface BuiltInfo { kind: string; name: string; desc: string; s: S }
+
+/**
+ * 无水金属氯化物里，有几位是「高中最容易画错」的 —— 它们**不是**一个个独立小分子，
+ * 而是 M 阳离子被 Cl⁻ 包围、再由 Cl⁻ 桥连起来的层状/链状离子晶体。
+ *
+ * ⚠️ 键按「元素符号排序 + 原子数」拼成（如 FeCl₃ → cl3fe），这样无论调用方递进来的是
+ *    `FeCl3` 还是推导时排序后的 `Cl3Fe`，都能命中同一条备注。
+ */
+const STRUCT_NOTE: Record<string, string> = {
+  cl3fe: '真实的无水 FeCl₃ 是层状离子晶体：每个 Fe³⁺ 被 6 个 Cl⁻ 八面体配位，相邻八面体共用棱上的 Cl⁻ 连成层，属六方晶系；只有当它气化时才变成 Fe₂Cl₆ 二聚分子（更高温度下才解体为平面三角的 FeCl₃ 单分子）。画面上的模型是 1 个 FeCl₃ 式量单元，配位数要看真实晶体才成立。',
+  cl2fe: '真实的无水 FeCl₂ 是 CdI₂ 型层状离子晶体：Fe²⁺ 同样被 6 个 Cl⁻ 八面体配位成层。',
+  alcl3: '真实的无水 AlCl₃ 是层状离子晶体（Al³⁺ 落在密堆积 Cl⁻ 层间的八面体空隙里），熔融或气化后才变成 Al₂Cl₆ 二聚分子、Al 转为四面体配位。',
+  cl2cu: '真实的无水 CuCl₂ 是链状晶体：平面正方形的 CuCl₄ 单元共用 Cl⁻ 连成长链（姜–泰勒效应把八面体拉长），不是一个个独立的 CuCl₂ 分子。',
+};
+
+/** 离子化合物/简单无机物的说明：讲清「画面上的这个模型代表什么」，避免被当成真实分子理解 */
+function simpleDesc(c: CountMap, central: string): string {
+  const rest = Object.keys(c).filter((el) => el !== central && (c[el] || 0) > 0);
+  let head: string;
+  if (METALS.has(central) && rest.length && rest.every((el) => HALOGENS.has(el))) {
+    head = `离子化合物：由 ${central} 阳离子与 ${rest.join('⁻、')}⁻ 靠离子键结合（画面上中心是 ${central}），实际是离子按一定配位堆积成的晶体，这里画的是它的 1 个式量单元。`;
+  } else if (METALS.has(central) && rest.every((el) => el === 'O' || HALOGENS.has(el))) {
+    head = `金属${rest.includes('O') ? '氧化物/卤化物' : '卤化物'}：以离子键为主，实际多为离子晶体（${central} 被 ${rest.join('、')} 配位包围），这里画出 1 个 ${central} 的配位单元作示意。`;
+  } else {
+    head = '简单化合物近似模型：按常见配位数摆出的配位单元，用来看清谁和谁相连。';
+  }
+  const key = Object.keys(c)
+    .filter((el) => (c[el] || 0) > 0)
+    .sort()
+    .map((el) => el + ((c[el] || 0) > 1 ? c[el] : ''))
+    .join('')
+    .toLowerCase();
+  const note = STRUCT_NOTE[key];
+  return note ? `${head}\n真实结构：${note}` : head;
+}
+
 function buildFromCounts(c: CountMap): BuiltInfo | null {
   const nC = c['C'] || 0, nH = c['H'] || 0, nO = c['O'] || 0;
   const other = Object.keys(c).filter((k) => !['C', 'H', 'O'].includes(k));
@@ -504,25 +667,52 @@ function buildFromCounts(c: CountMap): BuiltInfo | null {
     }
     if (total < 2) return null;
     const s = initS();
-    const central = other.find((el) => (c[el] || 0) >= 1)
-      || Object.keys(c).find((el) => el !== 'H' && (c[el] || 0) >= 1)
-      || Object.keys(c)[0];
+    const central = pickCentral(c);
     const ci = s.atoms.length;
     s.atoms.push({ el: central, pos: [0, 0, 0] });
+    // 1) 配体（不含 H）轮着排布（避免同种原子全挤在一起），再按配位数套标准构型
+    const groups: string[][] = Object.keys(c)
+      .filter((el) => el !== 'H')
+      .map((el) => Array(el === central ? (c[el] || 0) - 1 : c[el] || 0).fill(el))
+      .filter((g) => g.length > 0);
     const around: string[] = [];
-    Object.keys(c).forEach((el) => {
-      const cnt = c[el] || 0;
-      const start = el === central ? 1 : 0; // 中心取 1 个，其余同类原子也画在外围
-      for (let i = start; i < cnt; i++) around.push(el);
-    });
-    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < 64; i++) {
+      let added = false;
+      groups.forEach((g) => { if (i < g.length) { around.push(g[i]); added = true; } });
+      if (!added) break;
+    }
+    const dirs = ligandDirs(around.length);
+    const hosts: { el: string; idx: number; dir: V3; left: number }[] = [];
     around.forEach((el, i) => {
-      const d = norm([Math.cos(golden * i), Math.sin(golden * i), i % 2 ? 0.7 : -0.7]);
       const oi = s.atoms.length;
-      s.atoms.push({ el, pos: mul(d, 1.3 + 0.2 * (i % 3)) });
+      s.atoms.push({ el, pos: mul(dirs[i], bondLenOf(central, el)) });
       s.bonds.push({ a: ci, b: oi, order: 1 });
+      hosts.push({ el, idx: oi, dir: dirs[i], left: hostCapacity(el) });
     });
-    return { kind: 'simple', name: '', desc: '简单化合物近似模型（示意原子连接）。', s };
+    // 2) H 优先挂到已放好的阴离子原子上 —— 氢氧化物要画成 Fe–O–H，而不是 Fe 同时连着 O 和 H
+    let hLeft = c['H'] || 0;
+    while (hLeft > 0) {
+      const host = hosts
+        .filter((h) => h.left > 0)
+        .sort((a, b) => (EN[b.el] ?? 0) - (EN[a.el] ?? 0))[0];
+      if (!host) break;
+      host.left -= 1;
+      hLeft -= 1;
+      const d = rotV(host.dir, perp(host.dir), 0.8); // 从配体往外偏一点，M–O–H 不至于成直线
+      const hi = s.atoms.length;
+      s.atoms.push({ el: 'H', pos: add(s.atoms[host.idx].pos, mul(d, bondLenOf(host.el, 'H'))) });
+      s.bonds.push({ a: host.idx, b: hi, order: 1 });
+    }
+    if (hLeft > 0) {
+      // 剩下挂不到配体上的 H（HCl、NH₄Cl 这类）直接挂在中心上，方向避开已占用的那些
+      const extra = dirs.length ? dirsFor(hLeft, dirs) : ligandDirs(hLeft);
+      for (let j = 0; j < hLeft; j++) {
+        const hi = s.atoms.length;
+        s.atoms.push({ el: 'H', pos: mul(extra[j], bondLenOf(central, 'H')) });
+        s.bonds.push({ a: ci, b: hi, order: 1 });
+      }
+    }
+    return { kind: 'simple', name: '', desc: simpleDesc(c, central), s };
   }
   return null;
 }
