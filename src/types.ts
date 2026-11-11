@@ -30,6 +30,17 @@ export interface Bond {
   style?: string;
 }
 
+/**
+ * 结构图上的「电子转移 / 共价电子」短标签。
+ * pos 是分子局部坐标（与 atoms 同一坐标系），引擎把它挂在模型 root 下随分子一起旋转。
+ * tone 只决定配色：transfer = 电子得失（橙），covalent = 原子团内部的共价电子（紫）。
+ */
+export interface ElectronLabel {
+  text: string;
+  pos: [number, number, number];
+  tone?: 'transfer' | 'covalent';
+}
+
 export interface MoleculeData {
   id: string;
   name: string;
@@ -54,6 +65,8 @@ export interface MoleculeData {
   };
   /** 每个原子在该化合物中的离子电荷（与 atoms 下标对齐；缺省按 0 处理） */
   charges?: number[];
+  /** 离子化合物的电子转移 / 共价电子图上标注；完整文字说明写在 desc 里 */
+  electronLabels?: ElectronLabel[];
   /**
    * **整个分子的净电荷**（0 或缺省 = 中性分子）。
    * ⚠️ 别指望从 formula 里那个上标（OH⁻、Fe³⁺）去反推 —— 上标在标题里几乎看不出来，
@@ -101,6 +114,13 @@ export interface ReactionDramaSpecies {
 
 /** 反应发生时所处介质 —— 同一个氧化剂在不同介质下还原产物不同（如 KMnO₄：酸→Mn²⁺、中→MnO₂、碱→MnO₄²⁻） */
 export type ReactionEnv = 'acid' | 'neutral' | 'base';
+
+/**
+ * 通入 / 加入的那种物质相对介质的用量 —— 反应物相同但产物可能完全不同：
+ * - 'limited'：该物质少量、介质过量（SO₂ 少量 → SO₃²⁻，CO₂ 少量 → CO₃²⁻）
+ * - 'excess' ：该物质过量、介质不足（SO₂ 过量 → HSO₃⁻，CO₂ 过量 → HCO₃⁻）
+ */
+export type ReactantAmount = 'limited' | 'excess';
 
 /** 电子转移：元素 a 的原子向元素 b 的原子转移 n 个电子（拆分/组合阶段的橙黄小球示意） */
 export interface ElectronTransfer {

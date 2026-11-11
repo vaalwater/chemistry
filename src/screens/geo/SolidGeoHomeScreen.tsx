@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadow } from '../../theme';
+import { useSwipeBack } from '../../components/SwipeBack';
 import ProjectionLabScreen from './ProjectionLabScreen';
 import TheoremLabScreen from './TheoremLabScreen';
 import AngleFinderScreen from './AngleFinderScreen';
@@ -76,6 +77,7 @@ export default function SolidGeoHomeScreen({
    * 实验室里的「返回」应当直接离开本模块（回到汇总页），而不是先退回模块首页。
    */
   const backFromLab = initialView ? onBack : () => setView('home');
+  useSwipeBack(view === 'home' ? onBack : backFromLab);
 
   if (view === 'proj') {
     return (

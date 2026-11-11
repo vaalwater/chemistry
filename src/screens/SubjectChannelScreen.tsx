@@ -1,9 +1,19 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import {
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadow } from '../theme';
 import type { SubjectMeta } from '../subjects';
+import { loadScroll, saveScroll } from '../scrollMemory';
 
 /** 尚未开放内容的学科频道：说明现状 + 列出规划中的模块，结构与化学频道一致。 */
 export default function SubjectChannelScreen({
@@ -14,13 +24,33 @@ export default function SubjectChannelScreen({
   onOpenModule?: (route: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+  // 从模块返回频道首页时，滚回离开前的位置（频道页会被卸载再重新挂载）
+  const scrollRef = useRef<ScrollView>(null);
+  const restored = useRef(false);
+  const scrollKey = `channel:${subject.key}`;
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    saveScroll(scrollKey, e.nativeEvent.contentOffset.y);
+  };
+  const handleContentSize = () => {
+    if (restored.current) return;
+    restored.current = true;
+    const y = loadScroll(scrollKey);
+    if (y > 0) scrollRef.current?.scrollTo({ y, animated: false });
+  };
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={[styles.title, { color: subject.color }]}>{subject.name}</Text>
         <Text style={styles.subtitle}>{subject.tagline}</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        onContentSizeChange={handleContentSize}
+      >
         <View style={[styles.notice, { backgroundColor: subject.tint }]}>
           <Ionicons name={subject.ready ? 'checkmark-circle-outline' : 'hammer-outline'} size={18} color={subject.color} />
           <Text style={[styles.noticeText, { color: subject.color }]}>

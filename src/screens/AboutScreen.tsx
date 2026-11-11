@@ -2,6 +2,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
+import { useSwipeBack } from '../components/SwipeBack';
 
 /** ICP 备案号（国内上架必需，公示在关于页底部），点击跳工信部备案查询 */
 const ICP = '京ICP备2022030419号-4A';
@@ -45,6 +46,7 @@ export default function AboutScreen({
   onOpenAssistantSettings: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  useSwipeBack(onBack);
   return (
     <View style={styles.container}>
       {/* 不做沉浸式：内容从状态栏（时间/信号）下方开始 */}

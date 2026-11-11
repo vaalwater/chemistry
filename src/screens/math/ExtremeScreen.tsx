@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
+import { useSwipeBack } from '../../components/SwipeBack';
 import { CASES, caseById, defaultKnobs } from '../../math/extreme';
 import { bindScroller, jumpToZone } from './zones/kit';
 import CaseZone from './extreme/CaseZone';
@@ -24,6 +25,7 @@ const ZONE_TAGS = ['选题', '几何', 'λ 是什么', '比一比', '算一遍']
 
 export default function ExtremeScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  useSwipeBack(onBack);
   const { width } = useWindowDimensions();
   const wide = width >= 980;
 

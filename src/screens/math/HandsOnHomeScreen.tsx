@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadow } from '../../theme';
+import { useSwipeBack } from '../../components/SwipeBack';
 import PlaygroundScreen from './PlaygroundScreen';
 
 type ViewKey = 'home' | 'draw';
@@ -38,10 +39,12 @@ export default function HandsOnHomeScreen({
 }) {
   const [view, setView] = useState<ViewKey>(initialView ?? 'home');
   const insets = useSafeAreaInsets();
-
   // 被外部直接打开「画图」时（比如从知识点汇总点进来），返回就直接离开本页
+  const drawBack = initialView ? onBack : () => setView('home');
+  useSwipeBack(view === 'draw' ? drawBack : onBack);
+
   if (view === 'draw') {
-    return <PlaygroundScreen onBack={initialView ? onBack : () => setView('home')} />;
+    return <PlaygroundScreen onBack={drawBack} />;
   }
 
   return (

@@ -23,6 +23,7 @@ import type { KnowledgeTarget } from './src/knowledge/knowledgeData';
 import KnowledgeScreen from './src/screens/KnowledgeScreen';
 import AppSplash from './src/components/AppSplash';
 import AskFab from './src/components/AskFab';
+import { SwipeBackProvider } from './src/components/SwipeBack';
 
 type TabKey = 'browse' | 'reaction' | 'handson';
 
@@ -245,6 +246,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {splash ? <AppSplash onDone={hideSplash} /> : null}
+      <SwipeBackProvider>
       {!subject ? (
         knowledge ? (
           <KnowledgeScreen
@@ -331,6 +333,7 @@ export default function App() {
       {!splash && !showAssistantSettings ? (
         <AskFab onOpenSettings={() => setShowAssistantSettings(true)} />
       ) : null}
+      </SwipeBackProvider>
     </SafeAreaProvider>
   );
 }

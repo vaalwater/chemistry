@@ -61,3 +61,6 @@ s1.yaml
 # 一次性素材（隐私页文案草稿与配图，未纳入仓库）
 append.png
 appendix.md
+
+# 工作区工具/记忆目录（与 .codebuddy 同类，不入库）
+.workbuddy/

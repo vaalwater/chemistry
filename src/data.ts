@@ -44,6 +44,16 @@ export function moleculeById(id: string): MoleculeData | undefined {
   if (gen && gen.atoms && gen.atoms.length) {
     made.atoms = gen.atoms;
     made.bonds = gen.bonds;
+    // 只搬 atoms/bonds 会把「这个结构为什么长这样」丢掉：叠氮化钠的中文名、
+    // 离子键说明、Na⁺ 电荷、酸碱性都挂在 gen 上（见 formulaBuilder.buildAzide）。
+    // formula / formulaAscii 仍沿用 id 的原始写法，避免 NaCl 被显示成 ClNa。
+    made.name = gen.name || made.name;
+    made.desc = gen.desc || made.desc;
+    made.formulaDisplay = gen.formulaDisplay;
+    made.charges = gen.charges;
+    made.electronLabels = gen.electronLabels;
+    made.acidity = gen.acidity;
+    made.view = gen.view;
   }
   return made;
 }

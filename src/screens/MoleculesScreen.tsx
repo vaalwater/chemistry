@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import MoleculeThumb from '../components/MoleculeThumb';
 import { colors, radii, shadow } from '../theme';
 import { acidityTone, allMolecules, content, resolveMoleculeInput } from '../data';
+import { explainUnsupportedFormula } from '../formulaBuilder';
 import type { AcidInfo, MoleculeData } from '../types';
 
 interface Props {
@@ -43,7 +44,7 @@ export default function MoleculesScreen({ onOpen }: Props) {
     }
     const res = resolveMoleculeInput(t);
     if (!res) {
-      setErr('未找到匹配分子，且暂不支持该分子式的自动建模');
+      setErr(explainUnsupportedFormula(t) ?? '未找到匹配分子，且暂不支持该分子式的自动建模');
       return;
     }
     setErr(null);

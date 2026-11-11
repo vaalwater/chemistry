@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
+import { useSwipeBack } from '../components/SwipeBack';
 
 /** 生效日期：改动政策内容时同步改这一行 */
 const EFFECTIVE = '2026 年 10 月 24 日';
@@ -52,6 +53,7 @@ const sections: { title: string; body: string }[] = [
 /** 隐私政策页：从「关于」页进入，上架应用商店所需 */
 export default function PrivacyScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  useSwipeBack(onBack);
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>

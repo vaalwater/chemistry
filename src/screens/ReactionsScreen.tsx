@@ -13,19 +13,37 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { content } from '../data';
 import { colors } from '../theme';
-import type { ReactionData, ReactionDrama, ReactionEnv } from '../types';
+import type { ReactionData, ReactionDrama, ReactionEnv, ReactantAmount } from '../types';
 import { deriveDramaFromInputs, dramaForKnownReaction } from '../reactionEngine';
 
-const SAMPLES: { a: string; b: string; label: string }[] = [
+const SAMPLES: { a: string; b: string; label: string; env?: ReactionEnv; amount?: ReactantAmount }[] = [
   { a: 'Zn', b: 'HCl', label: '金属 + 酸' },
   { a: 'CH4', b: 'O2', label: '燃烧' },
   { a: 'NaOH', b: 'HCl', label: '中和' },
   { a: 'CaCO3', b: 'HCl', label: '盐 + 酸' },
   { a: 'H2O2', b: '', label: '分解' },
   { a: 'CO2', b: 'Ca(OH)2', label: '检验 CO₂' },
+  // 只填「一种化合物」，靠环境参数决定它发生什么反应
+  { a: 'Al', b: '', env: 'acid', label: '酸中溶解' },
+  { a: 'Al', b: '', env: 'base', label: '碱中溶解' },
+  { a: 'Cl2', b: '', env: 'base', label: '碱中歧化' },
+  { a: 'NO2', b: '', env: 'base', label: '碱液吸收' },
+  { a: 'Na2CO3', b: '', env: 'acid', label: '酸中放气' },
+  { a: 'NH4Cl', b: '', env: 'base', label: '碱中放氨' },
+  // 同一组反应物，用量决定产物：少量得正盐、过量得酸式盐
+  { a: 'SO2', b: '', env: 'base', amount: 'limited', label: 'SO₂ 少量 → SO₃²⁻' },
+  { a: 'SO2', b: '', env: 'base', amount: 'excess', label: 'SO₂ 过量 → HSO₃⁻' },
+  { a: 'CO2', b: '', env: 'base', amount: 'limited', label: 'CO₂ 少量 → CO₃²⁻' },
+  { a: 'CO2', b: '', env: 'base', amount: 'excess', label: 'CO₂ 过量 → HCO₃⁻' },
 ];
 
-/** 环境三档。目前只对离子方程式生效 —— 分子式那条推导还没有介质概念 */
+/** 用量两档：酸性氧化物遇碱时，是生成正盐还是酸式盐，全看谁过量 */
+const AMOUNT_OPTIONS: { key: ReactantAmount; label: string }[] = [
+  { key: 'limited', label: '少量（碱过量）' },
+  { key: 'excess', label: '过量（碱不足）' },
+];
+
+/** 环境三档：离子模式决定氧化还原产物，分子式模式决定「化合物 + 介质」走哪条净离子反应 */
 const ENV_OPTIONS: { key: ReactionEnv; label: string; hint: string }[] = [
   { key: 'acid', label: '酸性', hint: '溶液中有大量 H⁺' },
   { key: 'neutral', label: '中性', hint: '纯水或中性盐溶液' },
@@ -36,7 +54,7 @@ const ENV_OPTIONS: { key: ReactionEnv; label: string; hint: string }[] = [
  * 离子模式的样例：把环境连同反应物一起带上。
  * 特意放进了 MnO₄⁻ 的三种介质 —— 点一下就能直接看到同一个氧化剂在不同环境下的产物差异。
  */
-const ION_SAMPLES: { a: string; b: string; env: ReactionEnv; label: string }[] = [
+const ION_SAMPLES: { a: string; b: string; env: ReactionEnv; label: string; amount?: ReactantAmount }[] = [
   { a: 'Ag+', b: 'Cl-', env: 'neutral', label: '沉淀' },
   { a: 'Ba2+', b: 'SO4 2-', env: 'neutral', label: '检验 SO₄²⁻' },
   { a: 'Fe3+', b: 'OH-', env: 'neutral', label: '生成沉淀' },
@@ -50,6 +68,11 @@ const ION_SAMPLES: { a: string; b: string; env: ReactionEnv; label: string }[] =
   { a: 'Al', b: 'H+', env: 'acid', label: '铝溶于酸' },
   { a: 'Al', b: 'OH-', env: 'base', label: '铝溶于碱' },
   { a: 'H+', b: 'OH-', env: 'neutral', label: '中和本质' },
+  // 只填一种物质：介质会自动补成第二个反应物
+  { a: 'Cl2', b: '', env: 'base', label: '只填一种 · 碱' },
+  { a: 'Al', b: '', env: 'acid', label: '只填一种 · 酸' },
+  { a: 'SO2', b: '', env: 'base', amount: 'limited', label: 'SO₂ 少量 → SO₃²⁻' },
+  { a: 'SO2', b: '', env: 'base', amount: 'excess', label: 'SO₂ 过量 → HSO₃⁻' },
 ];
 
 function typeTone(type: string): string {
@@ -69,9 +92,12 @@ export default function ReactionsScreen({
   const [a, setA] = useState('');
   const [b, setB] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  /** 是否按离子方程式处理：勾选后可以写离子，配平加电荷守恒，同时解锁环境参数 */
+  /** 是否按离子方程式处理：勾选后反应物可以写离子，配平加电荷守恒 */
   const [ionic, setIonic] = useState(false);
+  /** 介质：两种模式共用 —— 离子模式决定还原产物，分子式模式决定「化合物 + 介质」的净离子反应 */
   const [env, setEnv] = useState<ReactionEnv>('neutral');
+  /** 通入物质相对介质的用量：SO₂ / CO₂ 遇碱时决定产物是正盐还是酸式盐 */
+  const [amount, setAmount] = useState<ReactantAmount>('limited');
   const insets = useSafeAreaInsets();
 
   const launch = (drama: ReactionDrama) => {
@@ -88,11 +114,13 @@ export default function ReactionsScreen({
     if (!a.trim() && !b.trim()) {
       setMsg({
         ok: false,
-        text: ionic ? '请先填写反应物离子（如 Ag+、Cl-）。' : '请先填写反应物 A（可只填一个做分解反应）。',
+        text: ionic
+          ? '请先填写反应物离子（如 Ag+、Cl-）。'
+          : '请先填写反应物 A；只填一种化合物并选定酸性 / 碱性，也能看它在介质中的反应。',
       });
       return;
     }
-    const res = deriveDramaFromInputs(a, b, { ionic, env });
+    const res = deriveDramaFromInputs(a, b, { ionic, env, amount });
     if (!res.drama) {
       setMsg({
         ok: false,
@@ -118,7 +146,7 @@ export default function ReactionsScreen({
           <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>
             <Text style={styles.title}>反应 · 电子级演示</Text>
             <Text style={styles.subtitle}>
-              输入分子式 → 自动推导并配平 → 3D 分步观察「断键 → 电子得失/转移 → 重新成键」
+              输入分子式 → 自动推导并配平 → 3D 分步观察「断键 → 电子得失/转移 → 重新成键」。选定酸碱性后，只填一种化合物也能看到它在该介质中的反应。
             </Text>
 
             <View style={styles.inputCard}>
@@ -140,37 +168,66 @@ export default function ReactionsScreen({
                 </View>
               </Pressable>
 
-              {ionic ? (
-                <View style={styles.envBlock}>
-                  <View style={styles.envHead}>
-                    <Text style={styles.envTitle}>环境（溶液酸碱性）</Text>
-                    <Text style={styles.envHint}>{ENV_OPTIONS.find((o) => o.key === env)?.hint}</Text>
-                  </View>
-                  <View style={styles.envRow}>
-                    {ENV_OPTIONS.map((o) => (
-                      <Pressable
-                        key={o.key}
-                        style={[styles.envChip, env === o.key && styles.envChipOn]}
-                        onPress={() => setEnv(o.key)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: env === o.key }}
-                      >
-                        <Ionicons
-                          name={o.key === 'acid' ? 'flask-outline' : o.key === 'base' ? 'water-outline' : 'analytics-outline'}
-                          size={13}
-                          color={env === o.key ? '#fff' : colors.sub}
-                        />
-                        <Text style={[styles.envChipText, env === o.key && styles.envChipTextOn]}>
-                          {o.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
+              <View style={styles.envBlock}>
+                <View style={styles.envHead}>
+                  <Text style={styles.envTitle}>环境（溶液酸碱性）</Text>
+                  <Text style={styles.envHint}>{ENV_OPTIONS.find((o) => o.key === env)?.hint}</Text>
+                </View>
+                <View style={styles.envRow}>
+                  {ENV_OPTIONS.map((o) => (
+                    <Pressable
+                      key={o.key}
+                      style={[styles.envChip, env === o.key && styles.envChipOn]}
+                      onPress={() => setEnv(o.key)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: env === o.key }}
+                    >
+                      <Ionicons
+                        name={o.key === 'acid' ? 'flask-outline' : o.key === 'base' ? 'water-outline' : 'analytics-outline'}
+                        size={13}
+                        color={env === o.key ? '#fff' : colors.sub}
+                      />
+                      <Text style={[styles.envChipText, env === o.key && styles.envChipTextOn]}>
+                        {o.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {ionic ? (
                   <Text style={styles.envNote}>
                     同一个氧化剂在不同介质里还原产物可能完全不同，例如 MnO₄⁻：酸性 → Mn²⁺、中性 → MnO₂、碱性 → MnO₄²⁻
                   </Text>
-                </View>
-              ) : null}
+                ) : (
+                  <Text style={styles.envNote}>
+                    选中酸性 / 碱性后，只填一种化合物就能看它在介质里的反应：环境会自动补入 H⁺ 或 OH⁻，再按净离子方程式配平。例如 Al 在酸中生成 Al³⁺、在碱中生成 AlO₂⁻；Cl₂ 只在碱里歧化。
+                  </Text>
+                )}
+
+                {/* 用量分支目前都是「酸性氧化物 + 碱」，酸性介质里没有这档，不显示免得误导 */}
+                {env === 'base' ? (
+                  <>
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>用量</Text>
+                      {AMOUNT_OPTIONS.map((o) => (
+                        <Pressable
+                          key={o.key}
+                          style={[styles.amountChip, amount === o.key && styles.amountChipOn]}
+                          onPress={() => setAmount(o.key)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: amount === o.key }}
+                        >
+                          <Text style={[styles.amountChipText, amount === o.key && styles.amountChipTextOn]}>
+                            {o.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Text style={styles.envNote}>
+                      同一组反应物也可能因用量不同而产物不同：SO₂ / CO₂ 少量（碱过量）得正盐 SO₃²⁻ / CO₃²⁻，过量（碱不足）得酸式盐 HSO₃⁻ / HCO₃⁻。
+                    </Text>
+                  </>
+                ) : null}
+              </View>
 
               <View style={styles.inputRow}>
                 <View style={styles.field}>
@@ -228,8 +285,9 @@ export default function ReactionsScreen({
                     onPress={() => {
                       setA(s.a);
                       setB(s.b);
-                      // 离子样例自带环境（KMnO₄ 的三档就靠这里一键对比）
-                      if (ionic && 'env' in s) setEnv((s as { env: ReactionEnv }).env);
+                      // 样例自带环境（介质的三档差异靠这里一键对比）；不带环境的样例回到中性
+                      setEnv('env' in s && s.env ? s.env : 'neutral');
+                      setAmount('amount' in s && s.amount ? s.amount : 'limited');
                       setMsg(null);
                     }}
                   >
@@ -350,6 +408,21 @@ const styles = StyleSheet.create({
   envChipText: { fontSize: 12.5, fontWeight: '700', color: colors.inkSoft },
   envChipTextOn: { color: '#fff' },
   envNote: { fontSize: 10.5, color: colors.sub, lineHeight: 15, marginTop: 7 },
+
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  amountLabel: { fontSize: 11.5, fontWeight: '700', color: colors.inkSoft, marginRight: 2 },
+  amountChip: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  amountChipOn: { backgroundColor: '#e8eefb', borderColor: colors.accent },
+  amountChipText: { fontSize: 11.5, fontWeight: '600', color: colors.inkSoft },
+  amountChipTextOn: { color: colors.accent },
 
   ionFormatHint: { fontSize: 11, color: colors.faint, marginTop: 8, lineHeight: 16 },
 

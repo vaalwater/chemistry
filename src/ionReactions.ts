@@ -17,6 +17,7 @@ import {
   displaySpecies,
   formulaOfCounts,
   parseCounts,
+  parseCountsLenient,
   splitCharge,
 } from './formulaBuilder';
 import type { CountMap } from './formulaBuilder';
@@ -29,6 +30,7 @@ import type {
   ReactionDrama,
   ReactionDramaSpecies,
   ReactionEnv,
+  ReactantAmount,
 } from './types';
 
 /* ============================================================
@@ -102,6 +104,12 @@ export const SP = {
   C2O4: sp({ C: 2, O: 4 }, -2),
   CO2: sp({ C: 1, O: 2 }, 0),
   H2O2: sp({ H: 2, O: 2 }, 0),
+  // 「化合物 + 介质」用：酸式盐、弱酸酐、氨、两性氢氧化物
+  HCO3: sp({ H: 1, C: 1, O: 3 }, -1),
+  HSO3: sp({ H: 1, S: 1, O: 3 }, -1),
+  NH3: sp({ N: 1, H: 3 }, 0),
+  SO2: sp({ S: 1, O: 2 }, 0),
+  AlOH3: sp({ Al: 1, O: 3, H: 3 }, 0),
   Al_metal: sp({ Al: 1 }, 0),
   Al3: sp({ Al: 1 }, 3),
   Fe2: sp({ Fe: 1 }, 2),
@@ -173,6 +181,7 @@ const ION_DB: IonDef[] = [
   { name: '亚硫酸根', counts: SP.SO3.counts, charge: -2, geom: 'pyramidal' },
   { name: '碳酸根', counts: SP.CO3.counts, charge: -2, geom: 'trigonal' },
   { name: '碳酸氢根', counts: { H: 1, C: 1, O: 3 }, charge: -1, geom: 'trigonal' },
+  { name: '亚硫酸氢根', counts: { H: 1, S: 1, O: 3 }, charge: -1, geom: 'pyramidal' },
   { name: '磷酸根', counts: { P: 1, O: 4 }, charge: -3, geom: 'tetrahedral' },
   { name: '高锰酸根', counts: SP.MnO4.counts, charge: -1, geom: 'tetrahedral', color: '紫红' },
   { name: '锰酸根', counts: SP.MnO4_2.counts, charge: -2, geom: 'tetrahedral', color: '墨绿' },
@@ -246,6 +255,48 @@ export function canParseIon(raw: string): boolean {
   return parseIonPart(raw) !== null;
 }
 
+/**
+ * 「一种化合物 + 介质」模式：把常见盐映射成**真正参与反应的那个离子**。
+ * Na⁺ / K⁺ / Cl⁻ / SO₄²⁻ 是旁观离子，不该写进净离子方程式，
+ * 所以 Na₂CO₃ 遇酸该写成 CO₃²⁻ + 2H⁺ → CO₂ + H₂O，而不是把 Na 也画进反应。
+ *
+ * 键统一用 formulaOfCounts(parseCounts(...)) 归一化，
+ * Na₂CO₃ / k2co3 / CO3Na2 会落到同一条，避免大小写和书写顺序把匹配打散。
+ */
+const COMPOUND_IONS: { formula: string; ion: string }[] = [
+  { formula: 'Na2CO3', ion: 'CO32-' },
+  { formula: 'K2CO3', ion: 'CO32-' },
+  { formula: 'NaHCO3', ion: 'HCO3-' },
+  { formula: 'KHCO3', ion: 'HCO3-' },
+  { formula: 'Na2SO3', ion: 'SO32-' },
+  { formula: 'K2SO3', ion: 'SO32-' },
+  { formula: 'NH4Cl', ion: 'NH4+' },
+  { formula: '(NH4)2SO4', ion: 'NH4+' },
+  { formula: 'NH4NO3', ion: 'NH4+' },
+  { formula: 'KMnO4', ion: 'MnO4-' },
+  { formula: 'NaMnO4', ion: 'MnO4-' },
+  { formula: 'NaAlO2', ion: 'AlO2-' },
+  { formula: 'KAlO2', ion: 'AlO2-' },
+  { formula: 'AlCl3', ion: 'Al3+' },
+  { formula: 'Al2(SO4)3', ion: 'Al3+' },
+];
+
+const COMPOUND_ION_MAP: Record<string, string> = (() => {
+  const m: Record<string, string> = {};
+  for (const x of COMPOUND_IONS) {
+    const c = parseCounts(x.formula);
+    if (c) m[formulaOfCounts(c).toLowerCase()] = x.ion;
+  }
+  return m;
+})();
+
+/** 分子式 → 参与介质反应的特征离子；未收录时返回 null（调用方按中性物种原样处理） */
+export function compoundIonOf(formula: string): string | null {
+  const c = parseCounts(formula) ?? parseCountsLenient(formula);
+  if (!c) return null;
+  return COMPOUND_ION_MAP[formulaOfCounts(c).toLowerCase()] ?? null;
+}
+
 /** 中性物种的展示式：优先写成人习惯的顺序（OH、SO4），没有对应习惯时才用算出来的标准式 */
 function neutralLabel(counts: CountMap): string {
   const keys = Object.keys(counts).filter((k) => counts[k]);
@@ -271,6 +322,11 @@ const HABIT: { txt: string; c: Record<string, number> }[] = [
   { txt: 'Cr2O7', c: { Cr: 2, O: 7 } },
   { txt: 'AlO2', c: { Al: 1, O: 2 } },
   { txt: 'NH4', c: { N: 1, H: 4 } },
+  /* 介质反应的产物：按机器排序会写成 H₃N / O₂S / CHO₃⁻，谁也认不出来 */
+  { txt: 'NH3', c: { N: 1, H: 3 } },
+  { txt: 'SO2', c: { S: 1, O: 2 } },
+  { txt: 'HCO3', c: { H: 1, C: 1, O: 3 } },
+  { txt: 'HSO3', c: { H: 1, S: 1, O: 3 } },
   { txt: 'SCN', c: { S: 1, C: 1, N: 1 } },
   /* 沉淀产物：它们的中性式如果按 machine 排序会写成 BaO₄S、CCaO₃ 这种谁也认不出的样子 */
   { txt: 'AgCl', c: { Ag: 1, Cl: 1 } },
@@ -513,7 +569,8 @@ function geometryOf(counts: CountMap, geom: IonGeom): Geom | null {
       return buildTrigonal(center, 'O', counts.O || 3, false);
     }
     case 'pyramidal': {
-      const center = els.find((e) => e !== 'O') ?? els[0];
+      // 酸式酸根（HSO₃⁻）里 H 只是挂在 O 上的质子，不能拿来当中心原子
+      const center = els.find((e) => e !== 'O' && e !== 'H') ?? els[0];
       return buildTrigonal(center, 'O', counts.O || 3, true);
     }
     case 'dichromate':
@@ -871,6 +928,8 @@ interface TableRx {
   lhs: IonSp[];
   rhs: IonSp[];
   meta: RxPlanMeta;
+  /** 只在这一档用量下成立（SO₂ / CO₂ 遇碱的「少量 vs 过量」分支）；不填 = 与用量无关 */
+  amount?: ReactantAmount;
 }
 
 const DISPROP: TableRx[] = [
@@ -987,9 +1046,11 @@ const AMPHOTERIC: TableRx[] = [
   },
 ];
 
-function tryTable(table: TableRx[], inputs: IonInput[], env: ReactionEnv): RxPlan | null {
+function tryTable(table: TableRx[], inputs: IonInput[], env: ReactionEnv, amount: ReactantAmount = 'limited'): RxPlan | null {
   for (const t of table) {
     if (t.env !== env) continue;
+    // 标了档位的表项只在对应档位生效；未标档位的与用量无关，任何档位都能命中
+    if (t.amount && t.amount !== amount) continue;
     if (inputs.length !== t.inputs.length) continue;
     const have = new Set(inputs.map((i) => i.key));
     if (!t.inputs.every((k) => have.has(k))) continue;
@@ -999,7 +1060,174 @@ function tryTable(table: TableRx[], inputs: IonInput[], env: ReactionEnv): RxPla
   return null;
 }
 
-/* ---- 7.5 兜底：酸碱中和的离子本质 ---- */
+/* ---- 7.5 化合物 + 介质：只给一种物质，环境自动补 H⁺ / OH⁻ ---- */
+
+/**
+ * 用户真正的诉求是「看一种化合物在酸碱环境下的反应」：
+ * 只填 Na₂CO₃ 或 NH₄Cl，选酸性 / 碱性，就该看到它发生了什么。
+ *
+ * 这里每条都写成**净离子方程式**：反应物栏只有「真正参与反应的那个离子」+ 介质离子，
+ * Na⁺ / K⁺ / Cl⁻ 这类旁观离子不写进来（它们本来就不参加反应）。
+ * 系数不手写，统一交给 solveWithCharge 求「原子守恒 + 电荷守恒」的整数解。
+ */
+const MEDIUM_RX: TableRx[] = [
+  {
+    inputs: [spKey(SP.CO3), spKey(SP.H)], env: 'acid',
+    lhs: [SP.CO3, SP.H], rhs: [SP.CO2, SP.H2O],
+    meta: {
+      name: '碳酸盐遇酸放出二氧化碳',
+      type: '复分解反应 · 离子反应',
+      cond: '酸性溶液',
+      desc: 'CO₃²⁻ 先结合 1 个 H⁺ 变成 HCO₃⁻，再结合 1 个 H⁺ 生成不稳定的 H₂CO₃，随即分解成 CO₂ 和 H₂O。金属阳离子只是旁观离子，所以任何可溶性碳酸盐遇强酸的净离子方程式都是这一个。',
+      steps: [
+        { title: '碳酸盐溶于水', desc: '溶液中真正参与反应的是 CO₃²⁻，Na⁺、K⁺ 在旁边不参与。', mode: 'reactants' },
+        { title: 'H⁺ 逐步加到碳酸根上', desc: 'CO₃²⁻ + H⁺ → HCO₃⁻，HCO₃⁻ + H⁺ → H₂CO₃；全程没有化合价变化，不是氧化还原。', mode: 'split' },
+        { title: '碳酸分解、气泡逸出', desc: 'H₂CO₃ 立刻分解成 CO₂↑ 和 H₂O，这就是碳酸盐遇酸冒气泡的原因。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.HCO3), spKey(SP.H)], env: 'acid',
+    lhs: [SP.HCO3, SP.H], rhs: [SP.CO2, SP.H2O],
+    meta: {
+      name: '碳酸氢盐遇酸放出二氧化碳',
+      type: '复分解反应 · 离子反应',
+      cond: '酸性溶液',
+      desc: 'HCO₃⁻ 只要再结合 1 个 H⁺ 就得到 H₂CO₃，随即分解为 CO₂ 和 H₂O。小苏打遇醋冒气泡、焙制糕点膨松，靠的都是这一步。',
+      steps: [
+        { title: '碳酸氢根进入酸中', desc: 'HCO₃⁻ 是碳酸的酸式酸根，还能再接受 1 个 H⁺。', mode: 'reactants' },
+        { title: '结合成碳酸', desc: 'HCO₃⁻ + H⁺ → H₂CO₃，没有电子转移。', mode: 'split' },
+        { title: '放出 CO₂', desc: 'H₂CO₃ 不稳定，立刻分解为 CO₂↑ 和 H₂O。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.SO3), spKey(SP.H)], env: 'acid',
+    lhs: [SP.SO3, SP.H], rhs: [SP.SO2, SP.H2O],
+    meta: {
+      name: '亚硫酸盐遇酸放出二氧化硫',
+      type: '复分解反应 · 离子反应',
+      cond: '酸性溶液',
+      desc: 'SO₃²⁻ 结合 2 个 H⁺ 生成不稳定的 H₂SO₃，分解成有刺激性气味的 SO₂ 和 H₂O。这也是实验室制取 SO₂、以及检验亚硫酸盐的常用方法。酸性介质里亚硫酸盐沉淀会被溶解，不会析出。',
+      steps: [
+        { title: '亚硫酸根进入酸中', desc: 'SO₃²⁻ 是弱酸 H₂SO₃ 的酸根，遇到强酸会被「赶回」弱酸。', mode: 'reactants' },
+        { title: '结合 2 个 H⁺', desc: 'SO₃²⁻ + 2H⁺ → H₂SO₃，元素化合价不变。', mode: 'split' },
+        { title: '分解成 SO₂', desc: 'H₂SO₃ → SO₂↑ + H₂O，能闻到刺激性气味。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.HCO3), spKey(SP.OH)], env: 'base',
+    lhs: [SP.HCO3, SP.OH], rhs: [SP.CO3, SP.H2O],
+    meta: {
+      name: '碳酸氢盐与碱反应',
+      type: '复分解反应 · 离子反应',
+      cond: '碱性溶液',
+      desc: 'HCO₃⁻ 是酸式酸根，还能把那个 H 交给 OH⁻，自己变回 CO₃²⁻ 并生成水。同一物质遇酸放 CO₂、遇碱却转化成正盐 —— 这就是「环境决定产物」最直接的例子。',
+      steps: [
+        { title: 'HCO₃⁻ 遇 OH⁻', desc: '碳酸氢根既能结合 H⁺，也能把 H⁺ 交给碱，属于两性物种。', mode: 'reactants' },
+        { title: '质子转移', desc: 'OH⁻ 夺走 HCO₃⁻ 上的 H，生成 H₂O 与 CO₃²⁻；没有电子得失。', mode: 'split' },
+        { title: '转化为正盐', desc: '溶液里剩下 CO₃²⁻，若加的是石灰水还会继续生成 CaCO₃ 沉淀。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.NH4), spKey(SP.OH)], env: 'base',
+    lhs: [SP.NH4, SP.OH], rhs: [SP.NH3, SP.H2O],
+    meta: {
+      name: '铵盐与碱反应放出氨气',
+      type: '复分解反应 · 离子反应',
+      cond: '碱性溶液 · 加热更明显',
+      desc: 'NH₄⁺ 是弱碱 NH₃·H₂O 的共轭酸，遇到 OH⁻ 就交出 1 个 H⁺ 变成 NH₃ 和 H₂O。加热时氨气逸出，能使湿润的红色石蕊试纸变蓝 —— 这是检验铵根离子的经典方法，也是铵态氮肥不能与草木灰混施的原因。',
+      steps: [
+        { title: '铵盐溶于碱液', desc: 'NH₄⁺ 与 OH⁻ 在溶液中共存，Cl⁻、SO₄²⁻ 等是旁观离子。', mode: 'reactants' },
+        { title: '质子从 NH₄⁺ 转给 OH⁻', desc: 'NH₄⁺ + OH⁻ → NH₃·H₂O，弱电解质生成，离子浓度下降。', mode: 'split' },
+        { title: '氨气逸出', desc: 'NH₃·H₂O 分解为 NH₃↑ 和 H₂O，加热时更明显。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.AlOH3), spKey(SP.OH)], env: 'base',
+    lhs: [SP.AlOH3, SP.OH], rhs: [SP.AlO2, SP.H2O],
+    meta: {
+      name: '氢氧化铝溶于过量强碱（两性）',
+      type: '复分解反应 · 离子反应',
+      cond: '强碱性溶液 · 碱过量',
+      desc: 'Al(OH)₃ 是两性氢氧化物：遇酸表现碱性、遇强碱表现酸性。碱过量时它继续结合 OH⁻，变成可溶的 AlO₂⁻（水溶液中更准确地写作 [Al(OH)₄]⁻），白色沉淀因此溶解。',
+      steps: [
+        { title: '白色胶状沉淀', desc: '少量碱加到 Al³⁺ 里先得到 Al(OH)₃ 沉淀。', mode: 'reactants' },
+        { title: '继续加碱', desc: 'Al(OH)₃ 把 H⁺ 交给 OH⁻，自身转化为铝酸根进入溶液。', mode: 'split' },
+        { title: '沉淀溶解', desc: '得到可溶的 AlO₂⁻ 和水，溶液重新变澄清。', mode: 'products' },
+      ],
+    },
+  },
+
+  /* ---- 酸性氧化物 + 碱：同一组反应物，用量不同产物完全不同 ----
+   * 少量（碱过量）得正盐 SO₃²⁻ / CO₃²⁻；过量（碱不足）只中和一级，停在酸式酸根 HSO₃⁻ / HCO₃⁻。
+   * 两条 inputs 完全一样，靠 amount 档位区分 —— 不能只留一条，否则另一半的化学就丢了。 */
+  {
+    inputs: [spKey(SP.SO2), spKey(SP.OH)], env: 'base', amount: 'limited',
+    lhs: [SP.SO2, SP.OH], rhs: [SP.SO3, SP.H2O],
+    meta: {
+      name: '少量 SO₂ 通入碱液（碱过量 → 亚硫酸盐）',
+      type: '复分解反应 · 离子反应',
+      cond: '碱性溶液 · SO₂ 少量 / 碱过量',
+      desc: 'SO₂ 是酸性氧化物，先与水生成 H₂SO₃，再被 OH⁻ 中和。碱足量时两个 H⁺ 都被夺走，酸根完全中和为 SO₃²⁻，得到正盐 Na₂SO₃。若继续通入过量 SO₂，已生成的 SO₃²⁻ 会与 SO₂、H₂O 结合转成 HSO₃⁻ —— 把「用量」切到过量就能看到那一步。',
+      steps: [
+        { title: '少量 SO₂ 通入碱液', desc: '碱过量、OH⁻ 充足；SO₂ 溶于水先形成 H₂SO₃。', mode: 'reactants' },
+        { title: '两级中和', desc: 'H₂SO₃ + OH⁻ → HSO₃⁻ + H₂O，HSO₃⁻ + OH⁻ → SO₃²⁻ + H₂O，两步共消耗 2 个 OH⁻。', mode: 'split' },
+        { title: '得到正盐', desc: 'SO₂ + 2OH⁻ → SO₃²⁻ + H₂O，化合价全程不变，不是氧化还原反应。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.SO2), spKey(SP.OH)], env: 'base', amount: 'excess',
+    lhs: [SP.SO2, SP.OH], rhs: [SP.HSO3],
+    meta: {
+      name: '过量 SO₂ 通入碱液（碱不足 → 亚硫酸氢盐）',
+      type: '复分解反应 · 离子反应',
+      cond: '碱性溶液 · SO₂ 过量 / 碱不足',
+      desc: 'OH⁻ 不够把 H₂SO₃ 的两个 H⁺ 都中和掉，只够中和第一个，产物停在酸式酸根 HSO₃⁻（亚硫酸氢盐 NaHSO₃）。也可以理解为先生成的 SO₃²⁻ 又与继续通入的 SO₂、H₂O 反应：SO₃²⁻ + SO₂ + H₂O → 2HSO₃⁻。这正是「同一组反应物、用量不同产物不同」。',
+      steps: [
+        { title: 'SO₂ 过量', desc: '碱很快被消耗完，溶液里 SO₂ 相对过剩。', mode: 'reactants' },
+        { title: '只中和一级', desc: 'SO₂ + OH⁻ → HSO₃⁻；没有第二个 OH⁻ 可以继续夺走 H⁺。', mode: 'split' },
+        { title: '得到酸式盐', desc: '产物是 HSO₃⁻ 而不是 SO₃²⁻，溶液中不再有大量 OH⁻。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.CO2), spKey(SP.OH)], env: 'base', amount: 'limited',
+    lhs: [SP.CO2, SP.OH], rhs: [SP.CO3, SP.H2O],
+    meta: {
+      name: '少量 CO₂ 通入碱液（碱过量 → 碳酸盐）',
+      type: '复分解反应 · 离子反应',
+      cond: '碱性溶液 · CO₂ 少量 / 碱过量',
+      desc: 'CO₂ 是酸性氧化物，碱足量时 H₂CO₃ 的两个 H⁺ 都被 OH⁻ 中和，得到 CO₃²⁻（正盐 Na₂CO₃）。澄清石灰水变浑浊、NaOH 吸收 CO₂ 都属这一类；CO₂ 继续通到过量，产物就变成 HCO₃⁻。',
+      steps: [
+        { title: '少量 CO₂ 通入碱液', desc: 'OH⁻ 充足，CO₂ 先溶于水形成 H₂CO₃。', mode: 'reactants' },
+        { title: '两级中和', desc: 'H₂CO₃ 依次失去两个 H⁺，共消耗 2 个 OH⁻。', mode: 'split' },
+        { title: '得到正盐', desc: 'CO₂ + 2OH⁻ → CO₃²⁻ + H₂O。', mode: 'products' },
+      ],
+    },
+  },
+  {
+    inputs: [spKey(SP.CO2), spKey(SP.OH)], env: 'base', amount: 'excess',
+    lhs: [SP.CO2, SP.OH], rhs: [SP.HCO3],
+    meta: {
+      name: '过量 CO₂ 通入碱液（碱不足 → 碳酸氢盐）',
+      type: '复分解反应 · 离子反应',
+      cond: '碱性溶液 · CO₂ 过量 / 碱不足',
+      desc: 'OH⁻ 只够中和 H₂CO₃ 的第一个 H⁺，产物停在 HCO₃⁻（碳酸氢盐 NaHCO₃）。往变浑浊的石灰水里继续通 CO₂ 会重新澄清，靠的就是这一步：CaCO₃ + CO₂ + H₂O → Ca(HCO₃)₂。',
+      steps: [
+        { title: 'CO₂ 过量', desc: '碱被耗尽，溶液中 CO₂ 相对过剩。', mode: 'reactants' },
+        { title: '只中和一级', desc: 'CO₂ + OH⁻ → HCO₃⁻，没有多余 OH⁻ 继续中和。', mode: 'split' },
+        { title: '得到酸式盐', desc: '产物是 HCO₃⁻ 而不是 CO₃²⁻。', mode: 'products' },
+      ],
+    },
+  },
+];
+
+/* ---- 7.6 兜底：酸碱中和的离子本质 ---- */
 
 function tryNeutralization(inputs: IonInput[]): RxPlan | null {
   if (inputs.length !== 2) return null;
@@ -1088,13 +1316,14 @@ export function equationOfPlan(lhs: ReactionDramaSpecies[], rhs: ReactionDramaSp
 
 /**
  * 离子方程式推导总入口。按优先级依次尝试：
- *   沉淀 / 离子共存 → 铝的两性 → 高锰酸根 × 介质 → 歧化 → 中和兜底
+ *   沉淀 / 离子共存 → 铝的两性 → 化合物 × 介质 → 高锰酸根 × 介质 → 歧化 → 中和兜底
  */
-export function deriveIonic(inputs: IonInput[], env: ReactionEnv): RxPlan | null {
+export function deriveIonic(inputs: IonInput[], env: ReactionEnv, amount: ReactantAmount = 'limited'): RxPlan | null {
   if (!inputs.length) return null;
   return (
     tryPrecipitation(inputs, env) ??
     tryTable(AMPHOTERIC, inputs, env) ??
+    tryTable(MEDIUM_RX, inputs, env, amount) ??
     tryPermanganate(inputs, env) ??
     tryTable(DISPROP, inputs, env) ??
     tryNeutralization(inputs)
@@ -1126,10 +1355,11 @@ export function ionicError(inputs: IonInput[], env: ReactionEnv): string {
   const has = (k: string) => keys.has(k);
   const mno4 = has(spKey(SP.MnO4));
   if (mno4) {
-    return `已识别到 MnO₄⁻ 但没有找到配对的还原剂。可试试这些：${REDUCERS.map((r) => r.name).join('、')}。当前介质为${envName(env)}性，还原产物会是${MNO4_HALF[env].prodLabel}。`;
+    return `已识别到 MnO₄⁻，但它必须遇到还原剂才会反应（单独放在酸里、碱里都不会自己变）。可补上一个：${REDUCERS.map((r) => r.name).join('、')}；当前为${envName(env)}性介质，还原产物会是${MNO4_HALF[env].prodLabel}。想对比三档介质，就在离子模式里保持同一个还原剂、只切换环境。`;
   }
-  if (inputs.some((i) => i.kind === 'neutral')) {
+  // 自动补过 H⁺/OH⁻ 的单物种输入是合法的「化合物 + 介质」场景，别再报「必须写离子」
+  if (inputs.some((i) => i.kind === 'neutral') && !has(spKey(SP.H)) && !has(spKey(SP.OH))) {
     return '离子方程式模式下需要写离子。若不勾选「离子方程式」，可以写分子式（如 Zn、HCl、NaOH）。';
   }
-  return '暂未收录这组离子之间的反应。目前已支持：沉淀类（Ag⁺+Cl⁻、Ba²⁺+SO₄²⁻、Fe³⁺+OH⁻ 等）、高锰酸根的介质氧化还原、Cl₂/NO₂ 的碱性歧化、铝的两性，以及酸碱中和。';
+  return '暂未收录这组离子之间的反应。目前已支持：沉淀类（Ag⁺+Cl⁻、Ba²⁺+SO₄²⁻、Fe³⁺+OH⁻ 等）、高锰酸根的介质氧化还原、Cl₂/NO₂ 的碱性歧化、铝的两性、SO₂/CO₂ 与碱按用量生成正盐或酸式盐、碳酸盐/亚硫酸盐/铵盐与酸碱的反应，以及酸碱中和。';
 }

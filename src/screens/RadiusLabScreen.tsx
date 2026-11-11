@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Chem3DView, { type Chem3DHandle } from '../components/Chem3DView';
 import RatioSlider from '../components/RatioSlider';
 import { colors, radii, shadow } from '../theme';
+import { SwipeEdge } from '../components/SwipeBack';
 import type { SceneReq } from '../types';
 import {
   APPLY_TASKS,
@@ -103,6 +104,7 @@ export default function RadiusLabScreen({
 
   return (
     <View style={styles.root}>
+      <SwipeEdge onBack={onBack} />
       {/* 全屏子页面：给状态栏（时间/信号）让出安全区，否则返回按钮会被盖住点不到 */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable style={styles.backBtn} onPress={onBack} accessibilityLabel="返回">

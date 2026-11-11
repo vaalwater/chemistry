@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
+import { useSwipeBack } from '../components/SwipeBack';
 import {
   ASSISTANT_SITES,
   resetAssistantWebview,
@@ -25,6 +26,7 @@ import {
  */
 export default function AssistantSettingsScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  useSwipeBack(onBack);
   const { on, site, loaded } = useAssistant();
   const [resetDone, setResetDone] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

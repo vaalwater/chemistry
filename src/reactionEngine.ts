@@ -20,18 +20,27 @@ import type {
   ReactionDrama,
   ReactionDramaSpecies,
   ReactionEnv,
+  ReactantAmount,
   DramaStep,
   ElectronTransfer,
 } from './types';
 import {
+  compoundIonOf,
   deriveIonic,
+  envName,
   ionicError,
   parseIonPart,
   planToDrama,
   type IonInput,
 } from './ionReactions';
 
-type MaybeDrama = { drama: ReactionDrama | null; error?: string; note?: string };
+type MaybeDrama = {
+  drama: ReactionDrama | null;
+  error?: string;
+  note?: string;
+  /** 推导失败时不许回落到普通分解（例如 KMnO₄ 单独放酸碱里根本不反应，播「受热分解」会误导） */
+  blockFallback?: boolean;
+};
 
 /* ---------------- 基础工具 ---------------- */
 const SHELL_CAP = [2, 8, 18, 18, 18, 18];
@@ -535,6 +544,8 @@ export interface DeriveOptions {
   ionic?: boolean;
   /** 介质：同一个氧化剂在不同酸碱环境下的还原产物不同 */
   env?: ReactionEnv;
+  /** 通入物质相对介质的用量：SO₂ / CO₂ 遇碱时，少量得正盐、过量得酸式盐 */
+  amount?: ReactantAmount;
 }
 
 /**
@@ -561,7 +572,7 @@ export function deriveDramaFromInputs(
   rawB: string,
   opts?: DeriveOptions
 ): MaybeDrama {
-  if (opts?.ionic) return deriveIonicPath(rawA, rawB, opts.env ?? 'neutral');
+  if (opts?.ionic) return deriveIonicPath(rawA, rawB, opts.env ?? 'neutral', opts.amount ?? 'limited');
   const trimA = rawA.trim();
   const trimB = rawB.trim();
   if (!trimA) return { drama: null, error: '请先填写反应物 A（如 Zn）或一个单反应物（如 H2O2）。' };
@@ -599,7 +610,16 @@ export function deriveDramaFromInputs(
     if (c) parts[i] = formulaOfCounts(c);
   }
 
-  // 1) 直接匹配内容库预置反应（物种集合一致）
+  // 1) 用户显式选了酸 / 碱、只填一种物质时，先看「化合物 + 介质」的净离子反应。
+  //    必须排在库内预置反应之前 —— NaHCO₃ 在内容库里是「受热分解」，
+  //    用户既然选了酸性 / 碱性，想看的显然是遇酸 / 遇碱，而不是加热。
+  const envTried = opts?.env && opts.env !== 'neutral' && parts.length === 1
+    ? deriveEnvReaction(parts, opts.env, opts.amount ?? 'limited')
+    : null;
+  if (envTried?.drama) return envTried;
+  if (envTried?.blockFallback) return { drama: null, error: envTried.error };
+
+  // 2) 直接匹配内容库预置反应（物种集合一致）
   const setKey = (f: string) => {
     const na = normalizeFormula(f);
     const key = formulaOfCounts(parseCounts(na) || {}).toLowerCase();
@@ -624,14 +644,58 @@ export function deriveDramaFromInputs(
     }
   }
   void inputC;
-  // 2) 单反应物分解
+  // 3) 单反应物分解
   if (parts.length === 1) {
     const d = deriveDecomp(parts[0]);
     if (d) return { drama: d, note: '按高中常见分解反应表匹配（产物可能需实验验证）。' };
-    return { drama: null, error: '未匹配到该单反应物的分解反应，请试试双反应物输入；也可参考下方实验列表。' };
+    return {
+      drama: null,
+      error: envTried?.error ?? '未匹配到该单反应物的分解反应，请试试双反应物输入；也可参考下方实验列表。',
+    };
   }
-  // 3) 一般推导（燃烧/置换/中和等）
+  // 4) 一般推导（燃烧/置换/中和等）
   return derivePatterns(parts);
+}
+
+/**
+ * 「一种化合物 + 介质」路径（不勾选离子方程式时）。
+ *
+ * 用户只填一种物质、再选酸性 / 碱性，环境本身就该作为第二个反应物：
+ * 酸性自动补 H⁺、碱性自动补 OH⁻，然后复用离子方程式那条路的
+ * 「原子守恒 + 电荷守恒」配平与 3D 剧幕。
+ *
+ * 盐类会先经 compoundIonOf 取到真正参与反应的离子（Na₂CO₃ → CO₃²⁻），
+ * 旁观离子不进方程式；单质 / 小分子（Cl₂、NO₂、Al）则原样作为中性物种参与。
+ * 只在**单物种**输入时接管，多反应物仍走原来的燃烧 / 置换 / 中和推导。
+ */
+function deriveEnvReaction(parts: string[], env: ReactionEnv, amount: ReactantAmount): MaybeDrama {
+  if (parts.length !== 1 || env === 'neutral') return { drama: null };
+  const formula = parts[0];
+  const ionText = compoundIonOf(formula);
+  // KMnO₄ 在酸碱溶液里不会自己反应：MnO₄⁻ 是氧化剂，必须有还原剂才能被还原。
+  // 内容库里 KMnO₄ 的「受热分解」是加热条件，绝不能拿来冒充介质反应。
+  if (ionText === 'MnO4-') {
+    return {
+      drama: null,
+      blockFallback: true,
+      error: '高锰酸盐在酸性 / 中性 / 碱性溶液中都不会自己反应 —— MnO₄⁻ 是氧化剂，得遇到还原剂才会被还原。想看介质造成的产物差异：勾选「离子方程式」，输入 MnO4- + Fe2+，再切换三档环境（酸性 → Mn²⁺、中性 → MnO₂、碱性 → MnO₄²⁻），下方样例可直接一键对比。',
+    };
+  }
+  const main = parseIonPart(ionText ?? formula);
+  const medium = parseIonPart(env === 'acid' ? 'H+' : 'OH-');
+  if (!main || !medium) return { drama: null };
+  const plan = deriveIonic([main, medium], env, amount);
+  if (plan) {
+    const id = `env_${formula}_${main.key.replace('|', '_')}_${env}_${amount}`;
+    return {
+      drama: planToDrama(plan, id, env),
+      note: `已按${envName(env)}性介质自动补入 ${env === 'acid' ? 'H⁺' : 'OH⁻'}，并按净离子方程式配平（原子与电荷同时守恒）。`,
+    };
+  }
+  return {
+    drama: null,
+    error: `${formula} 在${envName(env)}性介质、当前用量档位下暂未收录反应。可换一档环境或用量，或勾选「离子方程式」自行写出反应物离子；也可试试下方的介质样例（Al、Cl₂、NO₂、SO₂、CO₂、Na₂CO₃、NH₄Cl）。`,
+  };
 }
 
 /**
@@ -640,7 +704,7 @@ export function deriveDramaFromInputs(
  *    那样 `Fe3+` 会被切成 `["Fe3"]`、`NH4+` 切成 `["NH4"]`。
  *    离子模式改用空格 / 逗号 / 顿号 / 分号，或者两侧都带空格的 ` + `（MnO4- + Fe2+）。
  */
-function deriveIonicPath(rawA: string, rawB: string, env: ReactionEnv): MaybeDrama {
+function deriveIonicPath(rawA: string, rawB: string, env: ReactionEnv, amount: ReactantAmount): MaybeDrama {
   const text = [rawA, rawB].filter((s) => s.trim()).join(' , ');
   const rawParts = text
     .split(/[,，、;；]|\s+\+\s+|\s+/)
@@ -657,6 +721,13 @@ function deriveIonicPath(rawA: string, rawB: string, env: ReactionEnv): MaybeDra
   if (!parts.length) return { drama: null, error: '请先填写反应物离子，如 Ag+ 和 Cl-。' };
   if (parts.length > 3) return { drama: null, error: '暂支持最多 3 个反应物种，请简化输入。' };
 
+  // 只写了一种物质时，介质本身就是第二个反应物：
+  // 碱性补 OH⁻（Cl₂、NO₂ 的歧化）、酸性补 H⁺（Al 溶于酸）。
+  // 于是「看一种化合物在不同酸碱环境下的反应」不必再手敲第二格。
+  if (parts.length === 1 && env !== 'neutral') {
+    parts.push(env === 'acid' ? 'H+' : 'OH-');
+  }
+
   const inputs: IonInput[] = [];
   for (const p of parts) {
     const ion = parseIonPart(p);
@@ -669,9 +740,9 @@ function deriveIonicPath(rawA: string, rawB: string, env: ReactionEnv): MaybeDra
     inputs.push(ion);
   }
 
-  const plan = deriveIonic(inputs, env);
+  const plan = deriveIonic(inputs, env, amount);
   if (!plan) return { drama: null, error: ionicError(inputs, env) };
-  const id = `ion_${inputs.map((i) => i.key.replace('|', '_')).join('_')}_${env}`;
+  const id = `ion_${inputs.map((i) => i.key.replace('|', '_')).join('_')}_${env}_${amount}`;
   return {
     drama: planToDrama(plan, id, env),
     note: '已按离子方程式配平 —— 两侧原子数与净电荷同时守恒。',

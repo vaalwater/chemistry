@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadow } from '../../theme';
+import { useSwipeBack } from '../../components/SwipeBack';
 import FieldLabScreen from './FieldLabScreen';
 import RuleTrainerScreen from './RuleTrainerScreen';
 import InductionLabScreen from './InductionLabScreen';
@@ -73,6 +74,7 @@ export default function EmHomeScreen({
   const insets = useSafeAreaInsets();
   /** 被外部直接定位到某个实验室时（比如从知识点汇总点进来），返回就直接离开本模块 */
   const backFromLab = initialView ? onBack : () => setView('home');
+  useSwipeBack(view === 'home' ? onBack : backFromLab);
 
   if (view === 'field') {
     return <FieldLabScreen onBack={backFromLab} initialField={initialItem as FieldId | undefined} />;

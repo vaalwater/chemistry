@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Chem3DView, { type Chem3DHandle } from '../components/Chem3DView';
 import CanvasPanPad from '../components/CanvasPanPad';
 import { colors, radii, shadow } from '../theme';
+import { SwipeEdge } from '../components/SwipeBack';
 import {
   acidityTone,
   atomChargeOf,
@@ -326,6 +327,7 @@ export default function SceneScreen({ initial, onClose, onOpenRadiusLab }: Props
 
   return (
     <View style={styles.root}>
+      <SwipeEdge onBack={goBack} />
       <View style={StyleSheet.absoluteFill}>
         <Chem3DView
           ref={chemRef}

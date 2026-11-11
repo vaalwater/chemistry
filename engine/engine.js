@@ -1045,6 +1045,22 @@
       view.labels = labels;
       view.showLabels = true;
     }
+    // 离子化合物：把「阳离子交出几个 e⁻ / 原子团里几个原子共得几个 e⁻ / 团内共价电子」
+    // 直接标在结构图上。和元素符号标签一样在 fitView 之后再挂，避免长文字把分子挤小；
+    // 坐标由建模侧按 atoms 的坐标系算好，随模型一起旋转。
+    if (mol.electronLabels && mol.electronLabels.length && mol.scene !== 'lattice') {
+      var eGroup = new THREE.Group();
+      eGroup.name = 'electronLabels';
+      mol.electronLabels.forEach(function (L) {
+        if (!L || !L.text || !L.pos) return;
+        var col = L.tone === 'covalent' ? '#6d28d9' : '#c2410c';
+        var sp = textSprite(L.text, { size: 26, worldH: 0.36, color: col, bold: true });
+        sp.position.set(L.pos[0], L.pos[1], L.pos[2]);
+        eGroup.add(sp);
+      });
+      root.add(eGroup);
+      view.electronLabels = eGroup;
+    }
     applyCamMode('solid');
     showHint('拖动旋转 · 滚轮/双指缩放 · 轻点原子查看结构', 2600);
   }
@@ -1215,7 +1231,12 @@
       });
     }
     if (out.neighbors.length) {
-      out.note = '两原子共用电子对后，最外层趋于 8 电子（氢为 2）的稳定结构';
+      // NaN₃ 这类离子化合物：Na⁺ 的邻居全是阴离子，讲「共用电子对」就完全错了。
+      // 淡灰色细线只是示意静电作用，不是一根共价键。
+      var allIonic = out.neighbors.every(function (nb) { return nb.ionic; });
+      out.note = allIonic
+        ? '离子键：金属原子把电子交给阴离子（或整个原子团），两者靠静电作用结合，不存在共用电子对。淡灰色细线只是示意，不是共价键'
+        : '两原子共用电子对后，最外层趋于 8 电子（氢为 2）的稳定结构';
     }
     // 离域大 π 键：该原子是否参与？参与的话贡献几个电子、另外两个原子分别在哪个方向
     var bp = mol.bigpi;

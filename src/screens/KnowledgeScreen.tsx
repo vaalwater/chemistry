@@ -1,4 +1,13 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import {
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, shadow } from '../theme';
@@ -9,6 +18,8 @@ import {
   type KnowledgeTarget,
 } from '../knowledge/knowledgeData';
 import type { SubjectKey, SubjectMeta } from '../subjects';
+import { loadScroll, saveScroll } from '../scrollMemory';
+import { useSwipeBack } from '../components/SwipeBack';
 
 /**
  * 知识点汇总：一页教科书式的讲解（分章、连贯陈述、科普语气）。
@@ -26,7 +37,22 @@ export default function KnowledgeScreen({
   onOpen: (target: KnowledgeTarget) => void;
 }) {
   const insets = useSafeAreaInsets();
+  useSwipeBack(onBack);
   const chapters = KNOWLEDGE[subject.key as SubjectKey] ?? [];
+
+  // 返回时滚回离开前的位置（页面会被卸载再重新挂载，scroll 会回到顶部）
+  const scrollRef = useRef<ScrollView>(null);
+  const restored = useRef(false);
+  const scrollKey = `knowledge:${subject.key}`;
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    saveScroll(scrollKey, e.nativeEvent.contentOffset.y);
+  };
+  const handleContentSize = () => {
+    if (restored.current) return;
+    restored.current = true;
+    const y = loadScroll(scrollKey);
+    if (y > 0) scrollRef.current?.scrollTo({ y, animated: false });
+  };
 
   return (
     <View style={styles.root}>
@@ -42,7 +68,15 @@ export default function KnowledgeScreen({
         </Text>
       </View>
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyInner} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.body}
+        contentContainerStyle={styles.bodyInner}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        onContentSizeChange={handleContentSize}
+      >
         <View style={styles.paper}>
           {chapters.map((ch) => (
             <View key={ch.id} style={styles.chapter}>

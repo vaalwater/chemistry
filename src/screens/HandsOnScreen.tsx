@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, shadow } from '../theme';
+import { useSwipeBack } from '../components/SwipeBack';
 import { PROBLEMS, type IsoProblem } from '../iso/problems';
 import IsomerListScreen from './IsomerListScreen';
 import IsoPlayScreen from './IsoPlayScreen';
@@ -99,6 +100,8 @@ export default function HandsOnScreen({
    */
   const backFromLab =
     fromKnowledge && onExit ? onExit : () => setView('home');
+  // 动手首页是底部导航的一格，没有「返回」；只有进入某个实验后才需要左划返回
+  useSwipeBack(view === 'home' ? null : backFromLab);
 
   if (view === 'play' && problem) {
     return <IsoPlayScreen problem={problem} onBack={() => setView('list')} />;

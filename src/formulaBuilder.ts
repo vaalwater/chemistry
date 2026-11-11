@@ -1,5 +1,6 @@
 // 分子式解析 + 常见结构（直链烷/烯/炔、醇、羧酸、苯环、葡萄糖、简单无机物）的近似 3D 建模
-import type { MolAtom, MoleculeData } from './types';
+import type { ElectronLabel, MolAtom, MoleculeData } from './types';
+import { buildIonicCompound, chargeBalancePossible, suggestIonicFormulas } from './ionGroups';
 
 type V3 = [number, number, number];
 type S = { atoms: MolAtom[]; bonds: { a: number; b: number; order: number; style?: string }[] };
@@ -587,7 +588,22 @@ function structuralAscii(kind: string, nC: number): string | undefined {
   if (kind === 'acid') return nC === 1 ? 'HCOOH' : nC === 2 ? 'CH3COOH' : `C${nC - 1}H${2 * nC - 1}COOH`;
   return undefined;
 }
-interface BuiltInfo { kind: string; name: string; desc: string; s: S }
+interface BuiltInfo {
+  kind: string;
+  name: string;
+  desc: string;
+  s: S;
+  /** 覆盖「按元素排序」算出来的分子式（NaN₃ 会被排成 N₃Na） */
+  formulaAscii?: string;
+  /** 覆盖默认那条「中性」酸碱性标注 */
+  acidity?: MoleculeData['acidity'];
+  /** 各原子的离子电荷，与 atoms 下标对齐 */
+  charges?: number[];
+  /** 结构图上的电子转移 / 共价电子短标签 */
+  electronLabels?: ElectronLabel[];
+  /** true = 按真实结构手写，不追加「自动生成、键长近似」那句通用免责说明 */
+  exact?: boolean;
+}
 
 /**
  * 无水金属氯化物里，有几位是「高中最容易画错」的 —— 它们**不是**一个个独立小分子，
@@ -624,7 +640,35 @@ function simpleDesc(c: CountMap, central: string): string {
   return note ? `${head}\n真实结构：${note}` : head;
 }
 
+/**
+ * 离子化合物通用建模：金属 / 铵根阳离子 + 多原子阴离子（NO₃⁻、CO₃²⁻、SO₄²⁻、N₃⁻…）。
+ *
+ * 必须排在有机物与末尾「辐条兜底」之前 —— 那段会按电负性挑中心原子，
+ * 把原子团拆成一个个独立配体挂上去（NaN₃ 曾被画成 Na 居中连 3 个 N）。
+ * 价电子、Lewis 形式电荷与电中性守恒的规则都在 ./ionGroups.ts。
+ */
+function buildIonic(c: CountMap): BuiltInfo | null {
+  const built = buildIonicCompound(c);
+  if (!built) return null;
+  return {
+    kind: 'ionic',
+    name: built.name,
+    desc: built.desc,
+    s: {
+      atoms: built.atoms,
+      bonds: built.bonds.map((b) => ({ a: b.a, b: b.b, order: b.order ?? 1, style: b.style })),
+    },
+    formulaAscii: built.formulaAscii,
+    charges: built.charges,
+    electronLabels: built.electronLabels,
+    acidity: built.acidity,
+    exact: true,
+  };
+}
+
 function buildFromCounts(c: CountMap): BuiltInfo | null {
+  const ionic = buildIonic(c);
+  if (ionic) return ionic;
   const nC = c['C'] || 0, nH = c['H'] || 0, nO = c['O'] || 0;
   const other = Object.keys(c).filter((k) => !['C', 'H', 'O'].includes(k));
   const onlyCH = nO === 0 && other.length === 0;
@@ -659,6 +703,10 @@ function buildFromCounts(c: CountMap): BuiltInfo | null {
   const distinct = Object.keys(c).length;
   const hasSpecial = other.length > 0;
   if ((nC === 0 || hasSpecial) && distinct <= 6) {
+    // ★ 化学式可行性防线：含金属的式子若连常见化合价都配不平，就不要再画
+    //   「金属居中 + 一堆配体」的假结构（NaN₂ 曾被画成 Na 连着两个 N）。
+    //   校验只对「金属 + 有常见价态的元素」下判断，有机物与含 C 的盐不受影响。
+    if (!chargeBalancePossible(c)) return null;
     // 单原子（如金属单质 Fe/Cu/Na、固体碳等）：画一个原子球
     if (total === 1) {
       const s = initS();
@@ -723,7 +771,7 @@ export function buildMoleculeForFormula(raw: string): MoleculeData | null {
   if (!counts) return null;
   const info = buildFromCounts(counts);
   if (!info) return null;
-  const ascii = formulaOfCounts(counts);
+  const ascii = info.formulaAscii ?? formulaOfCounts(counts);
   const neutralAcid: MoleculeData['acidity'] | undefined = info.kind === 'acid'
     ? { label: '弱酸', explain: '羧酸在水中部分电离出 H⁺，显弱酸性（示意）。' }
     : info.kind === 'amine'
@@ -733,18 +781,39 @@ export function buildMoleculeForFormula(raw: string): MoleculeData | null {
   const structural = structuralAscii(info.kind, counts['C'] || 0);
   return {
     id: 'dyn_' + ascii,
-    name: info.name || (hasC ? '有机分子 · 近似模型' : '化合物 · 近似模型'),
+    name: info.name || '化合物 · 近似模型',
     formula: displayFormula(ascii),
     formulaDisplay: structural ? displayFormula(structural) : undefined,
-    category: hasC ? '化合物 · 有机物' : '化合物 · 自动建模',
+    category: info.exact ? '化合物 · 离子化合物' : hasC ? '化合物 · 有机物' : '化合物 · 自动建模',
     level: '扩展 · 自动建模',
     scene: 'molecule',
-    desc: `${info.desc}（分子式输入后自动生成，键长/键角为近似示意，仅用于学习原子连接关系。）`,
+    desc: info.exact
+      ? info.desc
+      : `${info.desc}（分子式输入后自动生成，键长/键角为近似示意，仅用于学习原子连接关系。）`,
     atoms: info.s.atoms,
     bonds: info.s.bonds,
+    charges: info.charges,
+    electronLabels: info.electronLabels,
     formulaAscii: ascii,
-    acidity: neutralAcid,
+    // 手写结构的盐不套用「中性」默认标注：强酸强碱盐才中性，
+    // 碳酸盐 / 铵盐该由 ionGroups 的水解规则给出弱碱 / 弱酸，没结论时干脆不显示徽标。
+    acidity: info.exact ? info.acidity : (info.acidity ?? neutralAcid),
   };
+}
+
+/**
+ * 输入式被拒绝时给出的化学解释；能建模、或与这条防线无关时返回 null。
+ * 分子输入页用它替代原来那句笼统的「暂不支持该分子式的自动建模」。
+ */
+export function explainUnsupportedFormula(raw: string): string | null {
+  const counts = parseCounts(raw) ?? parseCountsLenient(raw);
+  if (!counts || chargeBalancePossible(counts)) return null;
+  const shown = displayFormula(normalizeFormula(raw) || raw.trim());
+  const sugg = suggestIonicFormulas(counts).map((f) => displayFormula(f));
+  return [
+    `「${shown}」按常见化合价无法满足电荷守恒，不是已收录的稳定化合物，已停止自动生成结构，避免画出错误的球棍模型。`,
+    sugg.length ? `正确的写法可以试试：${sugg.join('、')}。` : '',
+  ].filter(Boolean).join('');
 }
 
 /** 首页内容库补充的代表性有机物 */

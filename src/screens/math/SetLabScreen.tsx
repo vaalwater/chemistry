@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
+import { useSwipeBack } from '../../components/SwipeBack';
 import { PROBES } from '../../math/setCase';
 import { baseObj, withParams, type MathObj } from '../../math/setObject';
 import InputZone from './zones/InputZone';
@@ -25,6 +26,7 @@ import { ZONE_TAGS, bindScroller, jumpToZone } from './zones/kit';
  */
 export default function SetLabScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  useSwipeBack(onBack);
   const { width } = useWindowDimensions();
   const wide = width >= 980;
 
