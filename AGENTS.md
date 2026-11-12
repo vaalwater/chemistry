@@ -332,7 +332,7 @@ mesh backgrounds, no noise, no text, letters, numbers, logos or watermarks.
 再 `node render.cjs` 产出 @2x PNG。
 
 **提交文案**：`ios/build/AppStore文案.md`（描述 / 关键词 / 宣传文本 / 审核备注，直接贴进 App Store Connect）。
-**隐私政策对外网页**：`../chemistryApp-landing/privacy.html`（与站点同风格，复用 assets/style.css，
+**隐私政策对外网页**：`https://drizzlee.cn/privacy.html`（与站点同风格，复用 assets/style.css，
 注意站点 footer 的备案号是网站用的 -2，App 关于页里是 App 备案 -4A，两者不要混）。
 
 ## 7. 开发命令
@@ -490,7 +490,7 @@ node your-test.cjs    # require('/tmp/datav/src/data.js')，data.ts 编译产物
 
 **隐私政策有两处，改隐私相关内容时必须一起改。**
 ① 应用内 `src/screens/PrivacyScreen.tsx`（上架审核用的文本）
-② 对外公示 `../chemistryApp-landing/privacy.html`（**另一个仓库**，内容要与应用内逐条对应）
+② 对外公示 `https://drizzlee.cn/privacy.html`（**另一个仓库**，内容要与应用内逐条对应）
 新增任何「联网 / 第三方 / 存储」行为时，必须回头检查那几条断言 ——
 例如原来写着「应用自身不发起任何网络请求，也不加载外部网页」，
 加了问答助手（打开 DeepSeek 官网）后这句就成了假话，必须改成「除问答助手外……」。

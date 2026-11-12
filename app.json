@@ -2,7 +2,7 @@
   "expo": {
     "name": "理科3D视界",
     "slug": "chem3d-classroom",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "orientation": "portrait",
     "icon": "./assets/app.png",
     "userInterfaceStyle": "light",
@@ -25,7 +25,7 @@
         "NSPhotoLibraryUsageDescription": "用于访问相册，以便选择或保存与学习相关的图片素材",
         "NSPhotoLibraryAddUsageDescription": "用于将学习相关的图片保存到你的相册"
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {
