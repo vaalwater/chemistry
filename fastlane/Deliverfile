@@ -1,0 +1,10 @@
+app_identifier "com.rongweiwei.chem3dclassroom"
+team_id "K8A6K8QFXF"
+app_version "2.0.1"
+api_key({
+  key_id: "2CFX4DH8F6",
+  issuer_id: "a4fc929e-6bdc-43c5-8d59-72b8846d0740",
+  filepath: "/Users/rongweiwei/.appstoreconnect/private_keys/AuthKey_2CFX4DH8F6.p8",
+  duration: 1200,
+  in_house: false
+})
